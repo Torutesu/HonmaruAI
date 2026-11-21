@@ -59,6 +59,18 @@ test('floating an App returns to the Apps library without closing its workspace 
  state.float=null
 })
 
+test('App annotation markers refresh from scoped live activity events',async()=>{
+ vi.stubGlobal('document',{addEventListener:vi.fn(),removeEventListener:vi.fn(),visibilityState:'visible'});vi.stubGlobal('window',new EventTarget())
+ const view={id:'all',type:'table',name:'All',rows:[]}
+ state.api={app:vi.fn().mockResolvedValue({app:{id:'tasks',name:'Tasks',description:'',icon:'grid',tableId:'tasks',version:1,createdBy:'owner',channels:[],definition:{views:[view]}},table:{id:'tasks',name:'Tasks',columns:[{id:'title',name:'Title',type:'text'}]},rows:[],views:[view],canCustomize:false}),personalViews:vi.fn().mockResolvedValue({revision:0,activeView:'all',views:[],computed:[],layouts:{}}),conversation:vi.fn().mockResolvedValue({messages:[],annotations:[]}),conversationNotifications:vi.fn().mockResolvedValue({items:[]})}
+ await act(async()=>{tree=create(<AppView httpBase="https://api.example" orgId="team:one" sessionToken="one" onClose={()=>{}} api={state.api} appId="tasks" onBack={()=>{}} initialSection="overview"/>);await new Promise(resolve=>setTimeout(resolve,0))})
+ const before=state.api.conversation.mock.calls.length
+ await act(async()=>{window.dispatchEvent(new CustomEvent('honmaru:app-activity-changed',{detail:{appId:'other'}}));await Promise.resolve()})
+ expect(state.api.conversation).toHaveBeenCalledTimes(before)
+ await act(async()=>{window.dispatchEvent(new CustomEvent('honmaru:app-activity-changed',{detail:{appId:'tasks'}}));await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(state.api.conversation).toHaveBeenCalledTimes(before+1)
+})
+
 test('new record labels use the primary table when its title differs from the app',()=>{
   expect(newAppRecordLabel('UI確認用タスク','タスク')).toBe('新規タスク')
   expect(newAppRecordLabel('UI確認用タスク','UI確認用タスク','タスク名')).toBe('新規タスク')

@@ -554,6 +554,11 @@
           "scope": "Record detail/create dialog headings, create/edit/cancel/loading labels, select prompts and ID/created/updated metadata labels use t() with ja/es/fr/de catalogs. Record timestamps use the selected account locale and invalid or missing timestamps render a safe placeholder. Harness uses localized record-conversation title and selected-record fallback copy.",
           "verification": "AppRecordDialog translation matrix passes for en/ja/es/fr/de including locale-formatted metadata dates; CompanyApp translation-catalog coverage passes for ja/es/fr/de; complete Web suite passed 280 files / 2,156 tests; TypeScript and Vite production build passed.",
           "remaining": "Authenticated production Kylon side-by-side interaction and deployed asset verification remain unverified."
+        },
+        "liveAppActivity": {
+          "scope": "App and record conversation writes send an app_id-only invalidation event to current members who can read the exact app/record scope. Open Web conversation panels and annotation markers refetch only for their matching app; existing polling remains as recovery. Message bodies, annotation text, and record data are never put in the event. Simple mode is unchanged; no migration or paid service was added.",
+          "verification": "Focused Worker app-conversation, notification, and workspace-query suites passed 127 tests. Focused AppConversationPanel and HarnessApps suites passed 74 tests. Exact-head CI and main deployment are pending.",
+          "remaining": "Authenticated two-device production synchronization, revoked-access behavior on connected live sockets, and side-by-side Kylon interaction remain unverified."
         }
       }
     },

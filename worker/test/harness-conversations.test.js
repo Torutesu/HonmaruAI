@@ -822,25 +822,41 @@ test('legacy raw session is upgraded before background proof and malformed body 
  await deferred();const result=await response.json();expect(await env.DB.prepare('SELECT status FROM hx_app_ai_replies WHERE message_id=?').bind(result.messageId).first()).toEqual({status:'succeeded'});
 });
 
-test('AI completion emits a generic activity signal and activity reload rechecks access',async()=>{
+test('AI completion emits an app-scoped activity signal to current readers and activity reload rechecks access',async()=>{
  const {replyToApp}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js'),{appActivity}=await import('../src/harness/appActivity.js');
  const input={body:'@AI help',requestId:'generic_ai_event_001'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
  const relay=vi.fn().mockResolvedValue({ok:true});const fakeEnv={...env,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
  await replyToApp(fakeEnv,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,{makeCompleter:async()=>async()=>'Mock reply'});
  expect(relay).toHaveBeenCalledOnce();const sent=JSON.parse(relay.mock.calls[0][1].body);
- expect(sent.deliveries).toHaveLength(1);expect(sent.deliveries[0].event).toMatchObject({type:'CUSTOM',name:'app_activity_changed',value:{}});
- expect(sent.deliveries[0].event.value).not.toHaveProperty('appId');
+ expect(sent.deliveries.map(item=>item.to).sort()).toEqual(['user9201','user9202']);
+ expect(sent.deliveries.every(item=>item.event.type==='CUSTOM'&&item.event.name==='app_activity_changed'&&item.event.value.appId===app.id)).toBe(true);
+ expect(JSON.stringify(sent)).not.toContain('Mock reply');
  expect((await appActivity(env.DB,org,'9201')).map(item=>item.message.body)).toContain('Mock reply');
  await env.DB.prepare('DELETE FROM memberships WHERE org_id=? AND user_github_id=?').bind(org,'9201').run();
  expect(await appActivity(env.DB,org,'9201')).toEqual([]);
 });
 
-test('ordinary mention activity retains its existing event payload',async()=>{
+test('app activity signals never reveal a private app to workspace members without access',async()=>{
+ const {announceAppActivityChanged}=await import('../src/harness/appConversationFeatures.js');
+ await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES(?,?,'private',1)").bind(org,app.id).run();
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,?,'edit',?)").bind(org,app.id,'9201',new Date().toISOString()).run();
+ await env.DB.prepare("INSERT INTO hx_app_person_access(org_id,app_id,user_github_id,permission,updated_at) VALUES(?,?,?,'view',?)").bind(org,app.id,'9202',new Date().toISOString()).run();
+ const relay=vi.fn().mockResolvedValue({ok:true});const fakeEnv={...env,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
+ await announceAppActivityChanged(env.DB,fakeEnv,org,app.id,{tableId:app.tableId,rowId:row.id});
+ const deliveries=JSON.parse(relay.mock.calls[0][1].body).deliveries;
+ expect(deliveries.map(item=>item.to).sort()).toEqual(['user9201','user9202']);
+ expect(deliveries.every(item=>item.event.value.appId===app.id)).toBe(true);
+});
+
+test('ordinary mention activity includes only an app-scoped invalidation, never message content',async()=>{
  const {notifyAppMentions}=await import('../src/harness/appConversationFeatures.js'),{appConversation}=await import('../src/harness/appConversations.js');
  const input={body:'@user9202 review',requestId:'generic_mention_event_1'},saved=await appConversation(env.DB,org,'9201',app.id,input,true);
  const relay=vi.fn().mockResolvedValue({ok:true});const fakeEnv={...env,ORG_RELAY:{idFromName:()=>1,get:()=>({fetch:relay})}};
  await notifyAppMentions(env.DB,org,{github_id:'9201',login:'user9201'},app.id,input,saved.messageId,fakeEnv);
- expect(relay).toHaveBeenCalledOnce();expect(JSON.parse(relay.mock.calls[0][1].body).deliveries[0].event.value).toEqual({appId:app.id});
+ expect(relay).toHaveBeenCalledOnce();const deliveries=JSON.parse(relay.mock.calls[0][1].body).deliveries;
+ expect(deliveries.map(item=>item.to).sort()).toEqual(['user9201','user9202']);
+ expect(deliveries.every(item=>item.event.value.appId===app.id)).toBe(true);
+ expect(JSON.stringify(deliveries)).not.toContain(input.body);
 });
 
 test('long room guidelines do not replace the app request or determine its fallback template',async()=>{

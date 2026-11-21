@@ -60,8 +60,11 @@ export function AppConversationPanel({api,appId,tableId,rowId,title,context,onCl
   if(initialDraft&&!suggestion)onInitialDraftConsumed?.()
   setError('');setLoading(true);setHasMore(false);setSending(false);setOlder(false);pending.current=false;request.current=null;historyLoaded.current=false;stickToBottom.current=true;scrollAnchor.current=null
   void refresh(generation)
+  const onAppActivity=(event:Event)=>{if((event as CustomEvent<{appId?:string}>).detail?.appId===appId)void refresh(generation)}
+  const activityWindow=typeof window==='undefined'?null:window
+  activityWindow?.addEventListener('honmaru:app-activity-changed',onAppActivity)
   const interval=setInterval(()=>{if(document.visibilityState==='visible')void refresh(generation)},10000)
-  return()=>{epoch.current++;clearInterval(interval)}
+  return()=>{epoch.current++;clearInterval(interval);activityWindow?.removeEventListener('honmaru:app-activity-changed',onAppActivity)}
   // This hydrates once for the keyed app/record conversation. Later route
   // changes must not reset text a person has already started editing.
   // eslint-disable-next-line react-hooks/exhaustive-deps
