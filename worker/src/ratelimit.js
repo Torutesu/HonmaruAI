@@ -52,7 +52,9 @@ export const LIMITS = {
   // Five outbound nodes can share one NAT. Keep their polling separate from
   // human team operations, then limit each authenticated node independently.
   'gateway/edge': { max: 600, windowSeconds: 300 },
-  'gateway/node': { max: 120, windowSeconds: 300 },
+  // A node makes separate five-second job/document polls and one-second
+  // Remote MCP polls; budget for both loops plus active-job heartbeats.
+  'gateway/node': { max: 900, windowSeconds: 300 },
   'gateway/control-poll': { max: 180, windowSeconds: 300 },
   // Talking: messages, edits, reactions, pins. A conversation is many small
   // writes — a burst of emoji is normal — so this is its own, wider bucket,
