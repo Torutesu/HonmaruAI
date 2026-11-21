@@ -34,7 +34,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  const name=`honmaru-${randomUUID()}`,nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce;
  const child=spawn(binary,containerArgs(name,WORKFLOW_BOOTSTRAP),{stdio:['pipe','pipe','pipe'],shell:false});
  let closed=false,status=null,killPromise,forceTimer,wireBytes=0,responseBytes=0,logBytes=0;
- const messages=[],tableMutations=[],connectionWrites=[],mutationTargets=new Set(),requestIds=new Set();let messageBytes=0,tableMutationBytes=0;
+ const messages=[],tableMutations=[],connectionWrites=[],connectionWriteOperationIds=new Set(),mutationTargets=new Set(),requestIds=new Set();let connectionWriteBinding=null,connectionWriteSequence=0,messageBytes=0,tableMutationBytes=0;
  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0);
  const decoder=new StringDecoder('utf8');
  const stop=reason=>{
@@ -58,13 +58,21 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
    if(messages.length>=32||messageBytes+Buffer.byteLength(JSON.stringify(draft))>30000)throw Error('Staged message limit exceeded.');
    messageBytes+=Buffer.byteLength(JSON.stringify(draft));messages.push(draft);return {staged:true,index:messages.length};
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Message draft was rejected.'})):request.method==='connection.request'?broker(request):request.method==='connection.stageWrite'?Promise.resolve().then(async()=>{
-   if(connectionWrites.length>=1)throw Error('Only one external write may be staged per Workflow run.');
+   if(connectionWriteOperationIds.size>=3)throw Error('At most three external writes may be staged per Workflow run.');
    const source=(context.connectionSources||[]).find(item=>item.appId===request.params?.appId&&item.name===request.params?.name&&item.method!=='GET'&&item.write===true);
    if(!source)throw Error('Write scope is not enabled.');
-   const value=await broker(request);if(value?.error)throw Error('Write authorization failed.');
-   const draft={appId:source.appId,name:source.name,ownerId:source.ownerId,version:source.version,method:source.method,operationId:request.params.operationId,body:request.params.body};
-   if(Buffer.byteLength(JSON.stringify(draft))>22000)throw Error('Staged write limit exceeded.');
-   connectionWrites.push(draft);return {staged:true};
+   const operationId=request.params.operationId;
+   if(connectionWriteOperationIds.has(operationId))throw Error('External write operation IDs must be unique within a run.');
+   if(connectionWriteBinding&&(connectionWriteBinding.appId!==source.appId||connectionWriteBinding.name!==source.name||connectionWriteBinding.ownerId!==source.ownerId||connectionWriteBinding.version!==source.version||connectionWriteBinding.method!==source.method))throw Error('All writes in one approval batch must use the same App connection.');
+   connectionWriteBinding=source;
+   const slot=connectionWriteSequence++;
+   connectionWriteOperationIds.add(operationId);
+   try{
+    const value=await broker(request);if(value?.error)throw Error('Write authorization failed.');
+    const draft={appId:source.appId,name:source.name,ownerId:source.ownerId,version:source.version,method:source.method,operationId,body:request.params.body};
+    if(Buffer.byteLength(JSON.stringify([...connectionWrites,draft]))>20000)throw Error('Staged write limit exceeded.');
+    connectionWrites[slot]=draft;return {staged:true};
+   }catch(error){throw error;}
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'External write could not be staged.'})):request.method==='table.insert'?Promise.resolve().then(async()=>{
    const value=await broker(request);if(value?.error)throw Error('Write rejected.');
    const source=(context.tableSources||[]).find(item=>item.entityId===request.params?.entityId&&item.write===true);
@@ -104,7 +112,8 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
   const exitCode=await completion;closed=true;controller.abort();
   if(killPromise)await killPromise;
   try{parser.push(decoder.end());parser.end();}catch{status||='failed';}
-  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableMutations.length?{tableMutations}:{}),...(status===null&&exitCode===0&&connectionWrites.length?{connectionWrites}:{})};
+  const stagedConnectionWrites=connectionWrites.filter(Boolean);
+  const result={status:status||(exitCode===0?'succeeded':'failed'),stdout:stdout.toString('utf8'),stderr:stderr.toString('utf8'),exitCode,messages,...(status===null&&exitCode===0&&tableMutations.length?{tableMutations}:{}),...(status===null&&exitCode===0&&stagedConnectionWrites.length?{connectionWrites:stagedConnectionWrites}:{})};
   if(logBytes>32768)result.stderr+='\nOutput limit exceeded.';
   if(signal?.aborted)result.stderr+='\nExecution cancelled.';
   while(Buffer.byteLength(JSON.stringify(result))>65000){result.stdout=result.stdout.slice(0,Math.floor(result.stdout.length/2));result.stderr=result.stderr.slice(0,Math.floor(result.stderr.length/2));}
