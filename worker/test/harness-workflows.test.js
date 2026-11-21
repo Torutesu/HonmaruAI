@@ -2273,6 +2273,108 @@ test('a personal-agent follow-up reads connected sources before reporting and ne
     .toMatchObject({ status: 'done', result: expect.stringContaining('https://linear.app/acme/issue/INV-7') });
 });
 
+test('a Harness room follow-up reads only its room-shared App and cites a real matching row', async () => {
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
+  const { upsertUser, upsertMembership } = await import('../src/db.js');
+  await upsertUser(env.DB, { githubId: '9303', login: 'rina', name: 'Rina', avatarUrl: null, locale: 'en' });
+  await upsertMembership(env.DB, ORG, '9303', 'member');
+  const privateApp = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  const deniedApp = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  expect((await send('PUT', `/apps/${deniedApp.id}/access`, mika, {
+    orgId: ORG, visibility: 'room', channel: 'b:ops', version: 0, people: [{ userId: '9303', permission: 'none' }],
+  })).status).toBe(200);
+  const app = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  expect((await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'room', channel: 'b:ops', version: 0 })).status).toBe(200);
+  await send('POST', `/tables/${app.tableId}/rows`, mika, { orgId: ORG, values: { Client: 'INV-7', Status: 'Paid' } });
+  const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
+    orgId: ORG, channel: 'b:ops', instruction: 'Check whether INV-7 is paid',
+    dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
+  });
+  expect(followup).toBeTruthy();
+  const bodies = [];
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    const body = JSON.parse(opts.body); bodies.push(body);
+    const query = body.tools?.find(tool => tool.function.name === 'query_room_app_rows');
+    expect(query.function.parameters.properties.appId.enum).toEqual([app.id]);
+    expect(query.function.parameters.properties.appId.enum).not.toContain(privateApp.id);
+    expect(query.function.parameters.properties.appId.enum).not.toContain(deniedApp.id);
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'list-room-apps', type: 'function', function: { name: 'list_room_apps', arguments: '{}' } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-invoice', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, q: 'INV-7' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { content: 'INV-7 is paid according to the Invoices App.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    await runDueFollowups({ ...env, OPENAI_API_KEY: 'sk-test' }, { now: new Date(Date.now() + 120_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies).toHaveLength(3);
+  expect((bodies[0].tools || []).map(tool => tool.function.name)).toContain('list_room_apps');
+  expect((bodies[0].tools || []).map(tool => tool.function.name)).toContain('query_room_app_rows');
+  expect(bodies[2].messages.at(-1)).toMatchObject({ role: 'tool', content: expect.stringContaining('Paid') });
+  expect((await messages(mika)).some(message => message.body.includes('INV-7 is paid'))).toBe(true);
+});
+
+test('a Room App read is discarded when its sharing is revoked during the model turn', async () => {
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
+  const app = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'room', channel: 'b:ops', version: 0 });
+  await send('POST', `/tables/${app.tableId}/rows`, mika, { orgId: ORG, values: { Client: 'INV-SECRET-9', Status: 'Confidential paid' } });
+  const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
+    orgId: ORG, channel: 'b:ops', instruction: 'Check INV-SECRET-9',
+    dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
+  });
+  const bodies = [];
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-secret', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, q: 'INV-SECRET-9' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
+    bodies.push(JSON.parse(opts.body));
+    await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'private', version: 1 });
+    return { choices: [{ message: { content: 'INV-SECRET-9 is paid.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    const done = await runDueFollowups({ ...env, OPENAI_API_KEY: 'sk-test' }, { now: new Date(Date.now() + 120_000) });
+    expect(done).toBe(0);
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].messages.filter(message => message.role === 'tool').map(message => message.content).join('\n')).toContain('INV-SECRET-9');
+  expect(await env.DB.prepare('SELECT status FROM hx_followups WHERE id=?1').bind(followup.id).first()).toEqual({ status: 'failed' });
+  expect((await messages(mika)).some(message => message.body.includes('INV-SECRET-9'))).toBe(false);
+});
+
+test('Simple follow-ups do not receive the Harness Room App tools', async () => {
+  const app = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
+  await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'room', channel: 'b:ops', version: 0 });
+  await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'simple' });
+  const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
+    orgId: ORG, channel: 'b:ops', instruction: 'Remind the team to check invoices',
+    dueAt: new Date(Date.now() + 60_000).toISOString(), by: '9302',
+  });
+  const bodies = [];
+  fetchMock.activate();
+  fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
+    bodies.push(JSON.parse(opts.body));
+    return { choices: [{ message: { content: 'Reminder: check invoices.' } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+  });
+  try {
+    await runDueFollowups({ ...env, OPENAI_API_KEY: 'sk-test' }, { now: new Date(Date.now() + 120_000) });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { fetchMock.deactivate(); }
+  expect((bodies[0].tools || []).map(tool => tool.function.name)).not.toContain('list_room_apps');
+  expect((bodies[0].tools || []).map(tool => tool.function.name)).not.toContain('query_room_app_rows');
+  expect((await messages(mika)).some(message => message.body.includes('Reminder: check invoices.'))).toBe(true);
+  expect(followup).toBeTruthy();
+});
+
 test('a personal-agent follow-up drops native-source results if its grant is revoked before the model responds', async () => {
   const agent = (await (await send('POST', '/channels/agents', mika, { orgId: ORG, name: 'Payroll checker', handle: 'payroll-checker', instructions: 'Check the policy.', scope: 'personal' })).json()).agent;
   const at = new Date().toISOString();

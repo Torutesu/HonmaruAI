@@ -14,6 +14,7 @@ import { agentSourceProvider } from "./agentConnections.js";
 import { mayUseAgentRemoteMcp } from "./agentRemoteMcp.js";
 import { followupSourceAuthority } from './appRecordSourceAuthority.js';
 import { workflowFollowupScheduleAuthority } from './workflowEffectAuthority.js';
+import { roomFollowupAppTools, roomFollowupAppsStillAuthorized } from './followupRoomApps.js';
 
 export const MAX_PER_CHANNEL = 50;
 // One cron invocation runs up to 25 follow-ups in turn, and a deploy, its time
@@ -207,6 +208,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
     };
     const nativeSourcesUsed = new Map();
     const remoteMcpToolsUsed = new Map();
+    const roomAppsUsed = new Map();
     const nativeSourcesStillAllowed = async () => {
       if (!nativeSourcesUsed.size || !r.agent_id) return true;
       const mode = await getMode(env.DB, r.org_id).catch(() => null);
@@ -228,7 +230,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       }
       return true;
     };
-    const authorize=async()=>!(await accessFailure()) && await nativeSourcesStillAllowed() && await remoteMcpStillAllowed();
+    const roomAppsStillAllowed = async () => roomFollowupAppsStillAuthorized(env, r, roomAppsUsed);
+    const authorize=async()=>!(await accessFailure()) && await nativeSourcesStillAllowed() && await remoteMcpStillAllowed() && await roomAppsStillAllowed();
     let body = r.instruction;
     let author = null;
     let kind = "ai";
@@ -254,7 +257,12 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
         const personalTools = await personalFollowupTools(env, r, (source, providerId) => nativeSourcesUsed.set(source, String(providerId || r.created_by)), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }));
-        const tools = { ...prepared.skillTools, ...personalTools };
+        // Company Apps are available in Harness only, and only when their
+        // access scope names this exact shared conversation. Personal Apps
+        // and external personal connectors stay inside the person's Agent DM.
+        const roomAppTools = await getMode(env.DB, r.org_id).catch(() => null) === 'harness'
+          ? await roomFollowupAppTools(env, r, roomAppsUsed).catch(() => ({})) : {};
+        const tools = { ...prepared.skillTools, ...personalTools, ...roomAppTools };
         const setupFailure=await accessFailure();
         if(setupFailure)throw new Error(setupFailure);
         const connectedReadTools = Object.keys(personalTools).filter(name => name === 'search_notion' || name === 'search_github' || /^app\d+_/.test(name) || /^mcp_/.test(name));
@@ -269,7 +277,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       } else {
         body = `⏰ Follow-up: ${r.instruction}`;
       }
-      const deliveryFailure=await accessFailure() || (!await nativeSourcesStillAllowed() ? 'Connected source access required.' : null) || (!await remoteMcpStillAllowed() ? 'Remote MCP access required.' : null);
+      const deliveryFailure=await accessFailure() || (!await nativeSourcesStillAllowed() ? 'Connected source access required.' : null) || (!await remoteMcpStillAllowed() ? 'Remote MCP access required.' : null) || (!await roomAppsStillAllowed() ? 'Room App access required.' : null);
       if(deliveryFailure)throw new Error(deliveryFailure);
       const out = await postMessage(env.DB, { orgId: r.org_id, key: r.channel, authorLogin: author, body: String(body).slice(0, 8000), kind, parentId: r.thread_id || null, followupFence: { id: r.id, ownerId: r.created_by, agentId: r.agent_id || null } });
       if (!out?.row) throw new Error(out?.error || "The follow-up could not be delivered.");
