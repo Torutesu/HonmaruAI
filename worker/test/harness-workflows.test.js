@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { joined, message, until } from "./helpers.js";
@@ -1136,6 +1136,41 @@ test("a scheduled workflow runs when its time comes, once, and a manual one when
 
   const run = (await (await send("POST", `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: "now please" })).json()).run;
   expect(run).toMatchObject({ trigger: "manual", status: "done", input: { text: "now please" } });
+});
+
+test("a scheduled occurrence is retried after transient run admission failure", async () => {
+  const { workflow } = await (await send("POST", "/workflows", mika, {
+    orgId: ORG, name: "Retry a due run",
+    trigger: { type: "schedule", cadence: "daily", hour: 9, timezone: "UTC" },
+    steps: [{ type: "post", channel: "b:ops", text: "Retry this scheduled notice." }],
+  })).json();
+  const due = new Date(Date.parse(workflow.nextRunAt) + 60_000);
+  const originalBatch = env.DB.batch.bind(env.DB);
+  let batches = 0;
+  const batch = vi.spyOn(env.DB, "batch").mockImplementation(statements => {
+    batches += 1;
+    if (batches === 2) return Promise.reject(new Error("temporary D1 failure"));
+    return originalBatch(statements);
+  });
+  try {
+    expect(await runDueWorkflows(env, { now: due })).toBe(0);
+  } finally {
+    batch.mockRestore();
+  }
+  const occurrence = await env.DB.prepare(`SELECT status,run_id FROM hx_workflow_schedule_occurrences
+    WHERE org_id=?1 AND workflow_id=?2 AND scheduled_for=?3`).bind(ORG,workflow.id,workflow.nextRunAt).first();
+  expect(occurrence).toMatchObject({ status: "pending", run_id: null });
+  expect((await env.DB.prepare("SELECT next_run_at FROM hx_workflows WHERE org_id=?1 AND id=?2").bind(ORG,workflow.id).first()).next_run_at)
+    .not.toBe(workflow.nextRunAt);
+
+  expect(await runDueWorkflows(env, { now: due })).toBe(1);
+  const completed = await env.DB.prepare(`SELECT status,run_id FROM hx_workflow_schedule_occurrences
+    WHERE org_id=?1 AND workflow_id=?2 AND scheduled_for=?3`).bind(ORG,workflow.id,workflow.nextRunAt).first();
+  expect(completed.status).toBe("started");
+  expect(completed.run_id).toBeTruthy();
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_runs WHERE org_id=?1 AND workflow_id=?2 AND scheduled_for=?3")
+    .bind(ORG,workflow.id,workflow.nextRunAt).first()).n).toBe(1);
+  expect((await messages(mika)).filter(message => message.body === "Retry this scheduled notice.")).toHaveLength(1);
 });
 
 test("a follow-up is listed where it was made, may be cancelled, and posts when due", async () => {

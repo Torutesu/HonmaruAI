@@ -676,6 +676,12 @@ CREATE INDEX IF NOT EXISTS idx_hx_document_export_links_expiry ON hx_document_ex
 CREATE TABLE IF NOT EXISTS hx_table_contract_versions (org_id TEXT NOT NULL, table_id TEXT NOT NULL, contract_hash TEXT NOT NULL CHECK(length(contract_hash)=64), contract_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,table_id,contract_hash));
 CREATE INDEX IF NOT EXISTS idx_hx_table_contract_versions_order ON hx_table_contract_versions(org_id,table_id,created_at DESC,contract_hash);
 
+-- #KY-056: preserve each scheduled occurrence before advancing the next tick.
+ALTER TABLE hx_workflow_runs ADD COLUMN scheduled_for TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hx_runs_schedule_occurrence ON hx_workflow_runs(org_id,workflow_id,scheduled_for) WHERE scheduled_for IS NOT NULL;
+CREATE TABLE IF NOT EXISTS hx_workflow_schedule_occurrences (org_id TEXT NOT NULL,workflow_id TEXT NOT NULL,scheduled_for TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','started','skipped')),lease_owner TEXT,lease_until TEXT,run_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(org_id,workflow_id,scheduled_for));
+CREATE INDEX IF NOT EXISTS idx_hx_workflow_schedule_pending ON hx_workflow_schedule_occurrences(status,lease_until,scheduled_for);
+
 -- #KY-131: persist local/cloud runtime transitions and retry owner DMs without replaying Agent work.
 CREATE TABLE IF NOT EXISTS hx_agent_fallback_state (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, current_state TEXT NOT NULL CHECK(current_state IN ('node','workspace')), version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id));
 CREATE TABLE IF NOT EXISTS hx_agent_fallback_events (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, owner_login TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('node','workspace')), version INTEGER NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','delivered','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(org_id,agent_id,version));

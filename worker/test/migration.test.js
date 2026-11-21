@@ -49,6 +49,17 @@ test("workflow usage dashboards have an organization and time-window index", asy
   expect(results.map((row) => row.name)).toContain("idx_hx_workflow_usage_org_created");
 });
 
+test("scheduled workflow occurrences survive the deploy migration path", async () => {
+  await applyDeploy(env.DB);
+  const columns = await env.DB.prepare("PRAGMA table_info(hx_workflow_runs)").all();
+  expect(columns.results.map(column => column.name)).toContain("scheduled_for");
+  const occurrence = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='hx_workflow_schedule_occurrences'").first();
+  expect(occurrence?.name).toBe("hx_workflow_schedule_occurrences");
+  const indexes = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_hx_runs_schedule_occurrence','idx_hx_workflow_schedule_pending')").all();
+  expect(indexes.results.map(index => index.name)).toEqual(expect.arrayContaining(["idx_hx_runs_schedule_occurrence","idx_hx_workflow_schedule_pending"]));
+  await expect(applyDeploy(env.DB)).resolves.not.toThrow();
+});
+
 test("App action history uses a creator-scoped locator index on the deploy path", async () => {
   await applyDeploy(env.DB);
   const index = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_hx_app_action_jobs_creator'").first();
