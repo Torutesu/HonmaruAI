@@ -37,7 +37,7 @@ import { searchHarnessResources } from "./harness/unifiedSearch.js";
 import { getDisplayPreference } from "./harness/displayPreferences.js";
 import { completer } from "./harness/model.js";
 import { storeAgentToolTrace, traceFromRow } from "./harness/agentToolTraces.js";
-import { agentSourceProvider } from "./harness/agentConnections.js";
+import { agentSourceAuthorizationStamp, agentSourceProvider } from "./harness/agentConnections.js";
 import { mayUseAgentSlackDraft } from "./harness/agentConnections.js";
 import { executeTool } from "./composio.js";
 import { claimSlackDraft, discardSlackDraft, expireUncertainSlackSend, getSlackDraftInternal, listSlackDestinations, publicSlackDraft, readSlackDraft, releaseSlackDraftClaim, resolveSlackDestination, settleSlackDraft, slackActionResult, slackDraftText, updateSlackDraft } from "./harness/slackDrafts.js";
@@ -629,6 +629,10 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         notionProviderForResearch(),
         githubProviderForResearch(),
       ]);
+      const [notionAuthorization, githubAuthorization] = await Promise.all([
+        sourceGrantAgentId !== null && await getMode(env.DB, orgId).catch(() => null) === "harness" ? agentSourceAuthorizationStamp(env, { orgId, agentId: sourceGrantAgentId, session, source: "notion" }) : Promise.resolve(notionProvider),
+        sourceGrantAgentId !== null && await getMode(env.DB, orgId).catch(() => null) === "harness" ? agentSourceAuthorizationStamp(env, { orgId, agentId: sourceGrantAgentId, session, source: "github" }) : Promise.resolve(githubProvider),
+      ]);
       const notionAllowed = Boolean(notionProvider);
       const githubAllowed = Boolean(githubProvider);
       // The decisions this person may open, as their own search finds them:
@@ -643,8 +647,12 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         notionProviderForResearch(),
         githubProviderForResearch(),
       ]);
-      const safeNotion = notionProviderAfter === notionProvider ? notion : [];
-      const safeGithub = githubProviderAfter === githubProvider ? github : [];
+      const [notionAuthorizationAfter, githubAuthorizationAfter] = await Promise.all([
+        sourceGrantAgentId !== null && await getMode(env.DB, orgId).catch(() => null) === "harness" ? agentSourceAuthorizationStamp(env, { orgId, agentId: sourceGrantAgentId, session, source: "notion" }) : Promise.resolve(notionProviderAfter),
+        sourceGrantAgentId !== null && await getMode(env.DB, orgId).catch(() => null) === "harness" ? agentSourceAuthorizationStamp(env, { orgId, agentId: sourceGrantAgentId, session, source: "github" }) : Promise.resolve(githubProviderAfter),
+      ]);
+      const safeNotion = notionProviderAfter === notionProvider && notionAuthorizationAfter === notionAuthorization ? notion : [];
+      const safeGithub = githubProviderAfter === githubProvider && githubAuthorizationAfter === githubAuthorization ? github : [];
       if (safeNotion.length) nativeSourcesUsed.set("notion", notionProvider);
       if (safeGithub.length) nativeSourcesUsed.set("github", githubProvider);
       const lines = decisions.slice(0, 8).map((d) => `- ${d.decidedAt ? String(d.decidedAt).slice(0, 10) : "pending"}${d.recipient ? ` ${d.recipient}` : ""} ${d.status || ""}: ${String(d.title || "").slice(0, 140)}`);

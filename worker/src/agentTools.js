@@ -18,7 +18,7 @@ import { accessFor } from "./access.js";
 import { getUserByGithubId } from "./db.js";
 import { connectedSources, searchNotion, searchGithubIssues, formatSourcesForModel } from "./context.js";
 import { getMode } from "./harness/mode.js";
-import { agentSourceCredential, agentSourceProvider } from "./harness/agentConnections.js";
+import { agentSourceAuthorizationStamp, agentSourceCredential, agentSourceProvider } from "./harness/agentConnections.js";
 import { agentRemoteMcpAuthorizationStamp, agentRemoteMcpTools, mayUseAgentRemoteMcpForRequest } from "./harness/agentRemoteMcp.js";
 import { callRemoteMcpTool } from "./harness/remoteMcp.js";
 import { agentRoomHistoryTools } from "./harness/agentRoomHistory.js";
@@ -174,8 +174,11 @@ export async function agentTools(env, { orgId, session, language = "en", persona
       run: async ({ query: q }) => {
         const ownerId = await notionOwner();
         if (!ownerId) return "Not searched: this Agent no longer has permission to use an authorized Notion connection.";
+        const authorizationBefore = workspaceMode === "harness" ? await agentSourceAuthorizationStamp(env, { orgId, agentId, session, source: "notion" }) : ownerId;
+        if (!authorizationBefore) return "Not searched: this Agent no longer has permission to use an authorized Notion connection.";
         const found = await searchNotion(env, ownerId, String(q || "")).catch(() => []);
-        if (await notionOwner() !== ownerId) return "Not searched: Notion access changed while the request was running; the result was discarded.";
+        const authorizationAfter = workspaceMode === "harness" ? await agentSourceAuthorizationStamp(env, { orgId, agentId, session, source: "notion" }) : await notionOwner();
+        if (authorizationAfter !== authorizationBefore) return "Not searched: Notion access changed while the request was running; the result was discarded.";
         if (found.length) { taint.value = true; onNativeSourceUsed?.("notion", ownerId); }
         return formatSourcesForModel(found);
       },
@@ -192,12 +195,15 @@ export async function agentTools(env, { orgId, session, language = "en", persona
           ? `${String(session?.github_id || '')}:personal`
           : await agentSourceProvider(env, { orgId, agentId, session, source: "github" });
         if (!providerId) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
+        const authorizationBefore = workspaceMode === "harness" ? await agentSourceAuthorizationStamp(env, { orgId, agentId, session, source: "github" }) : `${credential}:${providerId}`;
+        if (!authorizationBefore) return "Not searched: this Agent no longer has permission to use your GitHub connection.";
         const found = await searchGithubIssues(session, orgId, String(q || ""), env, credential).catch(() => []);
         const credentialAfter = await sourceCredential("github");
         const providerAfter = credentialAfter === 'auto'
           ? `${String(session?.github_id || '')}:personal`
           : credentialAfter ? await agentSourceProvider(env, { orgId, agentId, session, source: "github" }) : null;
-        if (credentialAfter !== credential || providerAfter !== providerId) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
+        const authorizationAfter = workspaceMode === "harness" ? await agentSourceAuthorizationStamp(env, { orgId, agentId, session, source: "github" }) : `${credentialAfter}:${providerAfter}`;
+        if (credentialAfter !== credential || providerAfter !== providerId || authorizationAfter !== authorizationBefore) return "Not searched: GitHub access changed while the request was running; the result was discarded.";
         if (found.length) { taint.value = true; onNativeSourceUsed?.("github", providerId); }
         return formatSourcesForModel(found);
       },

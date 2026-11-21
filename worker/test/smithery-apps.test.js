@@ -364,6 +364,7 @@ test("Smithery Agent tools recheck Agent audience before dispatch and discard re
     .bind(ORG,agentId,at).run();
   await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
     VALUES(?1,?2,'people','["mika"]','9702',?3)`).bind(ORG,agentId,at).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_access(org_id,agent_id,version) VALUES(?1,?2,0)`).bind(ORG,agentId).run();
   const path=`/hx/agents/${agentId}/apps`;
   expect((await call(path,mika,{method:"POST",body:{orgId:ORG,server:"linear"}})).status).toBe(200);
 
@@ -396,6 +397,12 @@ test("Smithery Agent tools recheck Agent audience before dispatch and discard re
     await started;
     await env.DB.prepare(`UPDATE hx_agent_profiles SET people='["toru"]',updated_at=?3 WHERE org_id=?1 AND agent_id=?2`)
       .bind(ORG,agentId,new Date().toISOString()).run();
+    await env.DB.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND agent_id=?2`)
+      .bind(ORG,agentId,crypto.randomUUID()).run();
+    await env.DB.prepare(`UPDATE hx_agent_profiles SET people='["mika"]',updated_at=?3 WHERE org_id=?1 AND agent_id=?2`)
+      .bind(ORG,agentId,new Date().toISOString()).run();
+    await env.DB.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=?3 WHERE org_id=?1 AND agent_id=?2`)
+      .bind(ORG,agentId,crypto.randomUUID()).run();
     finishRequest();
     const result=await request;
     expect(result).toContain("access changed while the request was running");
@@ -468,13 +475,15 @@ test("Harness native Notion access needs an agent grant and discards a result re
     await searchStarted;
     const revoked = await call(`${path}?${q}&source=notion`, mika, { method: "DELETE" });
     expect(revoked.status).toBe(200);
+    const restored = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "notion" } });
+    expect(restored.status, await restored.clone().text()).toBe(200);
     finishSearch();
     const output = await search;
     expect(output).toContain("access changed while the request was running");
     expect(output).not.toContain("Private payroll");
     expect(output).not.toContain("secret text");
     const harnessAfterRevoke = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
-    expect(harnessAfterRevoke.search_notion).toBeUndefined();
+    expect(harnessAfterRevoke.search_notion).toBeDefined();
     await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "simple" } });
     const simple = await agentTools(apiEnv(), { orgId: ORG, session, personal: true });
     expect(simple.search_notion).toBeDefined();

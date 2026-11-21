@@ -5,6 +5,26 @@ import { mayRunAgent, mayAccessAgent } from './agents.js';
 
 export const AGENT_CONNECTION_SOURCES = ['notion', 'github'];
 
+// A permission can be revoked and re-granted while a provider request is in
+// flight. Keep a monotonic fence so an identical-looking grant is still new.
+function bumpAgentConnectionAccess(db, orgId, agentId) {
+  const mutationId = crypto.randomUUID();
+  return db.prepare(`INSERT INTO hx_agent_access(org_id,agent_id,version,mutation_id)
+    SELECT ?1,?2,1,?3 WHERE EXISTS(SELECT 1 FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL)
+    ON CONFLICT(org_id,agent_id) DO UPDATE SET version=version+1,mutation_id=excluded.mutation_id`)
+    .bind(orgId, agentId, mutationId);
+}
+
+export async function agentSourceAuthorizationStamp(env, args) {
+  const provider = await agentSourceProvider(env, args);
+  if (!provider) return null;
+  try {
+    const access = await env.DB.prepare(`SELECT version,mutation_id AS mutationId FROM hx_agent_access
+      WHERE org_id=?1 AND agent_id=?2`).bind(args.orgId, args.agentId).first();
+    return access ? JSON.stringify([provider, access.version, access.mutationId || '']) : null;
+  } catch { return null; }
+}
+
 const personalGithubAvailable = (session, orgId, workspaceRepo = null) => Boolean(session?.github_access_token && session.github_access_token !== EMAIL_AUTH_TOKEN && /^[^/\s:]+\/[^/\s]+$/.test(String(workspaceRepo || orgId || '')));
 
 async function grantsFor(db, orgId, agentId, githubId) {
@@ -185,17 +205,17 @@ export async function setAgentSourceShare(env, { orgId, agentId, session, source
       AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.org_id=hx_agent_source_shares.org_id
         AND m.user_github_id=hx_agent_source_shares.owner_github_id AND m.created_at=hx_agent_source_shares.owner_membership_since
         AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')`).bind(orgId, agentId).run();
-    await env.DB.prepare(`INSERT INTO hx_agent_source_shares (org_id,agent_id,owner_github_id,owner_membership_since,source,created_at)
+    await env.DB.batch([env.DB.prepare(`INSERT INTO hx_agent_source_shares (org_id,agent_id,owner_github_id,owner_membership_since,source,created_at)
       VALUES (?1,?2,?3,?4,'notion',?5) ON CONFLICT(org_id,agent_id,source) DO UPDATE SET
         owner_membership_since=excluded.owner_membership_since,created_at=excluded.created_at WHERE owner_github_id=excluded.owner_github_id`)
-      .bind(orgId, agentId, githubId, member.created_at, stamp).run();
+      .bind(orgId, agentId, githubId, member.created_at, stamp), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
     const share = await activeNotionShare(env.DB, orgId, agentId).catch(() => null);
     if (String(share?.owner_github_id || '') !== githubId) return { error: 'Another Agent member already shared a Notion connection. Ask them to revoke it first.', status: 409 };
   } else {
     const share = await activeNotionShare(env.DB, orgId, agentId).catch(() => null);
     if (share && String(share.owner_github_id) !== githubId) return { error: 'Only the connection owner can revoke this share.', status: 403 };
-    await env.DB.prepare(`DELETE FROM hx_agent_source_shares WHERE org_id=?1 AND agent_id=?2 AND source='notion' AND owner_github_id=?3`)
-      .bind(orgId, agentId, githubId).run();
+    await env.DB.batch([env.DB.prepare(`DELETE FROM hx_agent_source_shares WHERE org_id=?1 AND agent_id=?2 AND source='notion' AND owner_github_id=?3`)
+      .bind(orgId, agentId, githubId), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
   }
   return agentSourceConnections(env, { orgId, agentId, session });
 }
@@ -209,13 +229,13 @@ export async function setAgentWorkspaceSourceConnection(env, { orgId, agentId, s
     .bind(orgId, agentId).first();
   if (!agent) return { error: 'Agent not found in this workspace.', status: 404 };
   if (enabled) {
-    await env.DB.prepare(`INSERT INTO hx_agent_workspace_source_grants (org_id,agent_id,source,granted_by,created_at)
+    await env.DB.batch([env.DB.prepare(`INSERT INTO hx_agent_workspace_source_grants (org_id,agent_id,source,granted_by,created_at)
       VALUES (?1,?2,'github',?3,?4)
       ON CONFLICT(org_id,agent_id,source) DO UPDATE SET granted_by=excluded.granted_by,created_at=excluded.created_at`)
-      .bind(orgId, agentId, String(actorId), new Date().toISOString()).run();
+      .bind(orgId, agentId, String(actorId), new Date().toISOString()), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
   } else {
-    await env.DB.prepare("DELETE FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2 AND source='github'")
-      .bind(orgId, agentId).run();
+    await env.DB.batch([env.DB.prepare("DELETE FROM hx_agent_workspace_source_grants WHERE org_id=?1 AND agent_id=?2 AND source='github'")
+      .bind(orgId, agentId), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
   }
   return { ok: true };
 }
@@ -232,20 +252,20 @@ export async function setAgentSourceConnection(env, { orgId, agentId, session, s
       ? personalGithubAvailable(session, orgId, (await getWorkspaceGitHub(env.DB, orgId).catch(() => null))?.repo)
       : (await connectedSources(env, session, orgId).catch(() => ({})))[source] === true;
     if (!available) return { error: `Connect your ${source === 'notion' ? 'Notion' : 'personal GitHub'} connection before allowing the Agent to use it.`, status: 409 };
-    const result = await env.DB.prepare(`INSERT INTO hx_agent_source_grants
+    const [result] = await env.DB.batch([env.DB.prepare(`INSERT INTO hx_agent_source_grants
         (org_id,agent_id,user_github_id,membership_since,source,created_at)
       SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       ON CONFLICT(org_id,agent_id,user_github_id,source) DO UPDATE SET
         membership_since=excluded.membership_since,created_at=excluded.created_at`)
-      .bind(orgId, agentId, githubId, source, new Date().toISOString()).run();
+      .bind(orgId, agentId, githubId, source, new Date().toISOString()), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
     if (!result.meta?.changes && !(await grantsFor(env.DB, orgId, agentId, githubId)).has(source)) {
       return { error: 'The workspace or Agent access changed. Reload and try again.', status: 409 };
     }
   } else {
-    await env.DB.prepare('DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND source=?4')
-      .bind(orgId, agentId, githubId, source).run();
+    await env.DB.batch([env.DB.prepare('DELETE FROM hx_agent_source_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND source=?4')
+      .bind(orgId, agentId, githubId, source), bumpAgentConnectionAccess(env.DB, orgId, agentId)]);
   }
   return agentSourceConnections(env, { orgId, agentId, session });
 }
