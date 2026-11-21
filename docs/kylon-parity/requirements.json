@@ -218,11 +218,11 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/agents/overview",
-      "code": "worker/src/harness/agents.js",
+      "code": "worker/src/customAgents.js; worker/src/channels.js; worker/src/harness/agents.js",
       "acceptance": "継続スレッドで@なしの自然名呼び出しを識別し、呼びかけ部分だけをAgent依頼として渡す。直前2分以内に同一利用者が同じスレッドで単一Agentを名前指定し、他の人間の発言が挟まらない場合、定型のタスク型フォローアップはそのAgentへ継続する。感謝など非タスク文、期限切れ、別人の割込み、複数Agentの曖昧な呼びかけでは継承しない。明示メンション・Agent DMは維持し、一般の人間返信やSimple modeでAgentを起動しない。進捗通知は抑制し、完了・自分宛メンションのみ通知する。",
       "evidence": {
-        "verified": "KY-109 end-to-end Worker regression proves inline Agent progress remains transient while only the completed answer enters the requester's attention event and push queue. The focused record is verification-ky109-notification-boundary.md. The test is included in main 1e68161e5b2bbefb8e121a3a22f4ef5fd952994d; main CI #42764954936 passed.",
-        "remaining": "Natural-name follow-up behavior and suppression timing still need authenticated Kylon side-by-side QA. Device-level multi-user and external-runtime notification acceptance remain open."
+        "verified": "KY-109 end-to-end Worker regression proves inline Agent progress remains transient while only the completed answer enters the requester's attention event and push queue. The focused record is verification-ky109-notification-boundary.md. Main commit ff1c7cd7580e9107238961e8ac125aee789bd590 adds natural-name routing plus a bounded two-minute quick follow-up that only continues for the same author and a single recently named Agent; Thanks/non-task text, expiry, intervening human replies, ambiguous multi-Agent calls, and Simple mode are covered by Worker regressions. A current-main batch of harness-agents, harness-apps, and harness-company passed 282/282; main CI #42532779147 passed all required jobs and Worker deploy #42532779181 succeeded. The progress-versus-completion notification test is included in main 1e68161e5b2bbefb8e121a3a22f4ef5fd952994d; main CI #42764954936 passed.",
+        "remaining": "Authenticated Kylon side-by-side routing and notification comparison, live multi-Agent behavior, and device-level external-runtime notification acceptance remain unverified."
       }
     },
     {
@@ -1357,7 +1357,11 @@
       "priority": "P0",
       "source": "https://kylon.io/pricing",
       "code": "web-react/src/utils/harness.ts",
-      "acceptance": "ユーザー×workspace単位のサーバー設定、同一ユーザー接続への限定通知、オフライン変更の再接続同期、他メンバーと共有Workspaceモードの非変更を検証。実端末2台での本番同期と各ネイティブ画面の比較は未検証"
+      "acceptance": "ユーザー×workspace単位のサーバー設定、同一ユーザー接続への限定通知、オフライン変更の再接続同期、他メンバーと共有Workspaceモードの非変更を検証。実端末2台での本番同期と各ネイティブ画面の比較は未検証",
+      "evidence": {
+        "verified": "Main commit c46ae3f4e9d277e00a2a48c11d6ed20edf7ba7d0 adds revision compare-and-set at the Worker write boundary and makes browser/device preference reconciliation monotonic across initial-load races, delayed responses, offline retry and newer cross-device events. Regression coverage checks stale server writes and delayed local retries. Main CI #42599358962 passed Worker shards, E2E, Web, Desktop, Relay, Gateway and shared core/mobile; Worker deployment #42599358916 and Web deployment #42599359236 succeeded. Current-main Worker suites harness-agents, harness-apps and harness-company passed 282/282; Web harness-mode suite passed 13/13.",
+        "remaining": "Production writes and synchronization across two separately signed-in devices, and native iOS/Android settings-screen visual comparison remain unverified."
+      }
     },
     {
       "id": "KY-093",
