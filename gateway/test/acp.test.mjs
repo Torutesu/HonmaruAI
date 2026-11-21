@@ -95,6 +95,7 @@ test('ACP recognizes provider quota and rate limit variants before prompt but re
     'Usage limit reached for this provider',
     'insufficient_quota: You exceeded your current quota',
     'Too many requests. Please try again later.',
+    '429 RESOURCE_EXHAUSTED',
     'Monthly spending limit has been reached',
     'No credits remaining for this plan',
     'Payment required to continue using this model',
