@@ -87,7 +87,8 @@ struct AppShell: View {
         // Also on appearing, for the tap that launched the app.
         .onChange(of: push.pendingCard) { _, _ in Task { await openTappedCard() } }
         .onChange(of: push.pendingMessage) { _, _ in Task { await openTappedMessage() } }
-        .onAppear { Task { await openTappedMessage(); await openTappedCard() } }
+        .onChange(of: push.pendingApp) { _, _ in Task { await openTappedApp() } }
+        .onAppear { Task { await openTappedMessage(); await openTappedCard(); await openTappedApp() } }
         .alert("That card is no longer available", isPresented: $cardUnavailable) {
             Button("OK", role: .cancel) {}
         } message: { Text("It may have been deleted, or you are no longer in its workspace.") }
@@ -112,6 +113,21 @@ struct AppShell: View {
         chat.bind(appState)
         tab = .activity
         chat.pendingOpen = target
+    }
+
+    /// Open the App in the notification's workspace. YouView owns the native
+    /// Harness navigation destination and then opens the record detail.
+    @MainActor private func openTappedApp() async {
+        guard let target = push.pendingApp, !appState.isGuest else { return }
+        if target.orgId != appState.currentUser?.teamID {
+            guard (try? await appState.switchToJoinedTeam(target.orgId)) != nil,
+                  appState.currentUser?.teamID == target.orgId else {
+                if push.pendingApp == target { push.pendingApp = nil }
+                return
+            }
+        }
+        guard push.pendingApp == target else { return }
+        tab = .you
     }
 
     /// A card's notification: its workspace first, then Home's cards, where

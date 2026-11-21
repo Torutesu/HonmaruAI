@@ -1,9 +1,11 @@
 import { router, Stack } from 'expo-router'
+import * as Linking from 'expo-linking'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { onNotificationTap } from '../lib/push'
 import { SessionProvider, useSession } from '../lib/session'
+import { safeAppActivityURL } from '@honmaru/core'
 
 function Screens() {
   const { ready, token, me, orgId, chooseOrg } = useSession()
@@ -18,6 +20,14 @@ function Screens() {
       if (!known) return
       void (async () => {
         if (target.orgId !== orgId) await chooseOrg(target.orgId)
+        if (target.kind === 'app_activity') {
+          // The native app has no App route yet. The Worker supplies the exact
+          // web conversation URL; only open the production Honmaru origin.
+          const url = safeAppActivityURL(target.url)
+          if (url) try { await Linking.openURL(url); return } catch { /* Fall back if the web link cannot open. */ }
+          router.push('/')
+          return
+        }
         router.push({ pathname: '/c/[channel]', params: { channel: target.channel } })
       })()
     })

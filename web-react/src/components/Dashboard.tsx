@@ -46,6 +46,7 @@ import { tabWithin, TAB_STOPS } from '../utils/focusTrap'
 import type { ChannelMessage } from '../types/card'
 import { ForYou } from '../utils/forYou'
 import { harnessApi, useWorkspaceMode } from '../utils/harness'
+import { openAppActivityPush } from './DashboardPushNavigation'
 
 // The screens a person opens now and then load when they are opened: the
 // first page is the conversation, not the settings behind it.
@@ -589,6 +590,7 @@ export const Dashboard: React.FC<Props> = ({ userId, orgId, relayUrl, sessionTok
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event: MessageEvent) => {
+      if (openAppActivityPush(event.data, { bringForward, closePanel: () => setPanel(null), navigate })) return
       // In the desktop app the window may be in the tray: out it comes.
       if (event.data?.type === 'open-card' || event.data?.type === 'open-message') bringForward()
       if (event.data?.type === 'open-card' && event.data.cardId) { setPanel(null); navigate(hashForCard(event.data.cardId, typeof event.data.orgId === 'string' ? event.data.orgId : null)) }

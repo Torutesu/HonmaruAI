@@ -1,5 +1,5 @@
 import {messageDeliveryAllowed,discardPendingMessagePushes} from './messageDelivery.js';
-import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS } from './notificationJobs.js';
+import { deliverOnce, retryable, retryDelay, MAX_ATTEMPTS, digest } from './notificationJobs.js';
 import { threadMuted, threadLeft } from "./threadNotifications.js";
 // A message that needs somebody, pushed to their phone — but only when they
 // are not already looking.
@@ -17,7 +17,7 @@ import { threadMuted, threadLeft } from "./threadNotifications.js";
 // A decision card is the other kind of thing that reaches a phone; the hub
 // (notify.js) asks isActive() before it pushes one.
 
-import { devicesForLogin, removeDevice, subscriptionsForLogin, removeSubscription } from "./db.js";
+import { devicesForLogin, removeDevice, subscriptionsForLogin, removeSubscription, getUserByLogin } from "./db.js";
 import { sendPush, isDeadToken, isConfigured as apnsConfigured } from "./apns.js";
 import { sendFcm, isDeadFcmToken, isFcmConfigured } from "./fcm.js";
 import { sendWebPush, isWebPushConfigured, isDeadSubscription } from "./webpush.js";
@@ -28,6 +28,8 @@ import { listMembers } from "./team.js";
 import { quietFor, quietEnds, HOLD_MAX_MS, keywordsIn, keywordHit } from "./quiet.js";
 import { announceTo } from "./announce.js";
 import { custom as customEvent } from "./agui/events.js";
+import { visibleAppNotifications } from "./harness/appActivity.js";
+import { appConversation } from "./harness/appConversations.js";
 
 export const PUSH_DELAY_MS = 60_000;
 /// How recent "at the app" has to be for a card not to be pushed.
@@ -216,6 +218,30 @@ export async function queueMessagePushes(env, orgId, row, { members = null, now 
   return to.length;
 }
 
+const appQueueKey = (orgId, appId, messageId) => `app:${encodeURIComponent(orgId)}:${encodeURIComponent(appId)}:${messageId}`;
+function appQueueParts(value) {
+  const match = /^app:([^:]+):([^:]+):([1-9][0-9]*)$/.exec(String(value || ''));
+  if (!match) return null;
+  try { return {orgId:decodeURIComponent(match[1]),appId:decodeURIComponent(match[2]),messageId:Number(match[3])}; }
+  catch { return null; }
+}
+
+/// Queue an App mention or AI reply only while its authorized inbox item is
+/// still unread. The durable queue's unique recipient/key pair handles retries.
+export async function queueAppNotificationPush(env,{orgId,appId,messageId,userId,login,now=Date.now()}={}) {
+  if(!env?.DB||!orgId||!appId||!Number.isSafeInteger(Number(messageId))||Number(messageId)<1||!userId||!login)return 0;
+  const visible=await visibleAppNotifications(env.DB,orgId,String(userId),undefined,appId,Number(messageId));
+  const item=visible.find(row=>Number(row.message_id)===Number(messageId)&&!row.read_at);
+  if(!item)return 0;
+  const key=appQueueKey(orgId,appId,Number(messageId)),at=new Date(now).toISOString();
+  const queued=await env.DB.prepare(`INSERT OR IGNORE INTO push_queue(org_id,login,message_id,reason,created_at,due_at)
+    SELECT ?1,?2,?3,?4,?5,?6 WHERE EXISTS(
+      SELECT 1 FROM hx_app_notifications n JOIN hx_app_messages m ON m.org_id=n.org_id AND m.app_id=n.app_id AND m.sequence=n.message_id
+      WHERE n.org_id=?1 AND n.app_id=?7 AND n.message_id=?8 AND n.user_id=?9 AND n.read_at IS NULL
+    )`).bind(orgId,login,key,`app-${item.kind==='ai'?'ai':'mention'}`,at,new Date(now+PUSH_DELAY_MS).toISOString(),appId,Number(messageId),String(userId)).run();
+  return queued?.meta?.changes||0;
+}
+
 const clip = (text, n) => {
   const flat = String(text || "").replace(/\s+/g, " ").trim();
   return flat.length > n ? `${flat.slice(0, n - 1)}…` : flat;
@@ -308,6 +334,42 @@ async function deliverMessagePush(env, job, { now = Date.now(), membersOf = new 
   return pushMessage(env, job.login, { deliveryJobId, title, body, orgId: job.org_id, channel: view, messageId: msg.id, parentId: msg.parent_id || null, at: msg.created_at });
 }
 
+async function deliverAppNotificationPush(env,job,parts,{now=Date.now(),deliveryJobId}={}){
+ const db=env.DB,user=await getUserByLogin(db,job.login);
+ if(!user)return {skipped:true};
+ const appRow=await db.prepare('SELECT id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(parts.orgId,parts.appId).first();
+ if(!appRow)return {skipped:true};
+ const visible=await visibleAppNotifications(db,parts.orgId,String(user.github_id),undefined,parts.appId,parts.messageId);
+ const item=visible.find(row=>Number(row.message_id)===parts.messageId&&!row.read_at);
+ if(!item)return {skipped:true};
+ const access=await appConversation(db,parts.orgId,String(user.github_id),parts.appId,{tableId:item.table_id||'',rowId:item.row_id||''});
+ if(access.error)return {skipped:true};
+ if(await isActive(db,parts.orgId,job.login,now))return {skipped:true};
+ if(await quietFor(db,job.login,new Date(now))){
+  const ends=await quietEnds(db,job.login,new Date(now));
+  return ends?{deferUntil:ends.getTime()}:{skipped:true};
+ }
+ if(job.last_error==='held'){
+  const newer=await db.prepare("SELECT COUNT(*) AS n FROM push_queue WHERE org_id=?1 AND login=?2 AND sent_at IS NULL AND last_error='held' AND id>?3").bind(parts.orgId,job.login,job.id).first();
+  if((newer?.n||0)>=HELD_SENT)return {skipped:true};
+ }
+ const tableId=item.table_id||'',rowId=item.row_id||'';
+ const query=new URLSearchParams({chat:'1'});
+ if(tableId&&rowId){query.set('table',tableId);query.set('row',rowId)}
+ const hash=`#/apps/${encodeURIComponent(parts.appId)}/${encodeURIComponent(parts.orgId)}?${query.toString()}`;
+ let url=hash;
+ try{const base=new URL(String(env.APP_WEB_URL||''));if(['https:','http:'].includes(base.protocol)&&!base.username&&!base.password)url=`${base.origin}${base.pathname.replace(/\/$/,'')}/${hash}`}catch{/* A hash remains usable by a native client when no web origin is configured. */}
+ const kind=item.kind==='ai'?'ai':'mention',locale=String(user.locale||'en').split('-')[0].toLowerCase();
+ const copy={
+  ja:{title:'Honmaru AI',ai:'Appの会話にAIから返信が届きました。',mention:'Appの会話でメンションされました。'},
+  es:{title:'Honmaru AI',ai:'La IA respondió en una conversación de la aplicación.',mention:'Te mencionaron en una conversación de la aplicación.'},
+  fr:{title:'Honmaru AI',ai:'L’IA a répondu dans une conversation de l’application.',mention:'Vous avez été mentionné dans une conversation de l’application.'},
+  de:{title:'Honmaru AI',ai:'Die KI hat in einer App-Konversation geantwortet.',mention:'Du wurdest in einer App-Konversation erwähnt.'},
+  en:{title:'Honmaru AI',ai:'AI replied in an App conversation.',mention:'You were mentioned in an App conversation.'},
+ }[locale]||{title:'Honmaru AI',ai:'AI replied in an App conversation.',mention:'You were mentioned in an App conversation.'};
+ return pushAppActivity(env,job.login,{deliveryJobId,title:copy.title,body:copy[kind],orgId:parts.orgId,appId:parts.appId,messageId:String(parts.messageId),tableId,rowId,url,createdAt:item.created_at});
+}
+
 const PUSH_CONCURRENCY = 5;
 /// Of the pushes held through quiet time, how many go when it ends: the latest.
 const HELD_SENT = 3;
@@ -333,7 +395,10 @@ export async function sendDuePushes(env, now = Date.now()) {
     let error = null;
     let held = null;
     try {
-      const result = await deliverMessagePush(env, job, { now, membersOf, deliveryJobId: `message:${job.id}` });
+      const appParts=appQueueParts(job.message_id);
+      const result = appParts
+        ? await deliverAppNotificationPush(env,job,appParts,{now,deliveryJobId:`message:${job.id}`})
+        : await deliverMessagePush(env, job, { now, membersOf, deliveryJobId: `message:${job.id}` });
       // Not pushed: marked done, but not as sent — clearDelivered sends a
       // phone a "read" for what was pushed to it, and nothing was.
       if (result.skipped) { skipped += 1; error = "skipped"; return; }
@@ -498,4 +563,24 @@ async function pushMessage(env, login, { title, body, orgId, channel, messageId,
     }
   }
   return {delivered, retry};
+}
+
+async function pushAppActivity(env,login,{deliveryJobId,title,body,orgId,appId,messageId,tableId,rowId,url,createdAt}){
+ let delivered=0,retry=false;
+ const devices=(apnsConfigured(env)||isFcmConfigured(env))?await devicesForLogin(env.DB,login):[];
+ const scope=`${orgId}|app:${appId}`,collapseId=(await digest(`${orgId}:${appId}:${messageId}`)).slice(0,32);
+ const data={kind:'app_activity',orgId,appId,messageId,tableId,rowId,url};
+ if(isFcmConfigured(env))for(const device of devices.filter(isAndroid)){
+  const result=await deliverOnce(env.DB,deliveryJobId,'fcm',device.device_token,()=>sendFcm(env,{token:device.device_token,title,text:body,tag:scope,data}));
+  retry||=retryable(result);if(result.ok)delivered++;else if(isDeadFcmToken(result))await removeDevice(env.DB,device.device_token);
+ }
+ if(apnsConfigured(env))for(const device of devices.filter(isIPhone)){
+  const result=await deliverOnce(env.DB,deliveryJobId,'apns',device.device_token,()=>sendPush(env,{deviceToken:device.device_token,device,collapseId,payload:{aps:{alert:{title,body},sound:'default','thread-id':scope},...data,at:createdAt}}));
+  retry||=retryable(result);if(result.ok)delivered++;else if(isDeadToken(result))await removeDevice(env.DB,device.device_token);
+ }
+ if(isWebPushConfigured(env))for(const subscription of await subscriptionsForLogin(env.DB,login)){
+  const result=await deliverOnce(env.DB,deliveryJobId,'webpush',subscription.endpoint,()=>sendWebPush(env,{subscription,topic:`app-${collapseId}`.slice(0,32),payload:{title,body,tag:scope,...data,at:createdAt}}));
+  retry||=retryable(result);if(result.ok)delivered++;else if(isDeadSubscription(result))await removeSubscription(env.DB,subscription.endpoint);
+ }
+ return {delivered,retry};
 }

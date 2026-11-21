@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { Api, ApiError } from '../src/api'
-import { pushTarget } from '../src/push'
+import { pushTarget, safeAppActivityURL } from '../src/push'
 
 // A pretend Worker for /devices, answering the way worker/src/index.js does.
 function server() {
@@ -64,6 +64,16 @@ describe('pushTarget', () => {
       .toEqual(target)
   })
 
+  test('reads an App conversation notification and only keeps a complete record scope', () => {
+    const payload = { kind: 'app_activity', orgId: 'team:a', appId: 'app-1', messageId: '42', tableId: 'table-1', rowId: 'row-1' }
+    expect(pushTarget(payload)).toEqual(payload)
+    expect(pushTarget({ ...payload, rowId: undefined })).toEqual({ kind: 'app_activity', orgId: 'team:a', appId: 'app-1', messageId: '42' })
+    expect(pushTarget({ ...payload, tableId: undefined })).toEqual({ kind: 'app_activity', orgId: 'team:a', appId: 'app-1', messageId: '42' })
+    expect(pushTarget({ ...payload, appId: '' })).toBeNull()
+    expect(pushTarget({ ...payload, rowId: '' })).toEqual({ kind: 'app_activity', orgId: 'team:a', appId: 'app-1', messageId: '42' })
+    expect(pushTarget({ ...payload, url: 'https://app.honmaruai.com/#/apps/app-1/team%3Aa?chat=1' })).toMatchObject({ url: 'https://app.honmaruai.com/#/apps/app-1/team%3Aa?chat=1' })
+  })
+
   test('the first source that names a conversation wins', () => {
     expect(pushTarget({}, null, { orgId: 'team:a', channel: 'dm:mika|toru' })).toEqual({ orgId: 'team:a', channel: 'dm:mika|toru', messageId: null })
   })
@@ -75,5 +85,16 @@ describe('pushTarget', () => {
     expect(pushTarget({ body: 'not json' })).toBeNull()
     expect(pushTarget({ body: JSON.stringify({ body: JSON.stringify(target) }) })).toBeNull()
     expect(pushTarget(undefined, 'string', 42)).toBeNull()
+  })
+})
+
+describe('safeAppActivityURL', () => {
+  test('allows only credential-free HTTPS links to the Honmaru app origin', () => {
+    expect(safeAppActivityURL('https://app.honmaruai.com/#/apps/app-1/team%3Aa?chat=1')).toBe('https://app.honmaruai.com/#/apps/app-1/team%3Aa?chat=1')
+    expect(safeAppActivityURL('http://app.honmaruai.com/#/apps/app-1')).toBeNull()
+    expect(safeAppActivityURL('https://evil.example/#/apps/app-1')).toBeNull()
+    expect(safeAppActivityURL('https://app.honmaruai.com.evil.example/')).toBeNull()
+    expect(safeAppActivityURL('https://user:pass@app.honmaruai.com/')).toBeNull()
+    expect(safeAppActivityURL('javascript:alert(1)')).toBeNull()
   })
 })

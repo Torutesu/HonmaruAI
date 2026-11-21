@@ -38,11 +38,13 @@ struct HarnessError: View {
 // MARK: - Hub
 
 struct HarnessHubView: View {
+    var notificationTarget: PushService.AppTarget? = nil
     @EnvironmentObject private var appState: AppState
     @State private var mode: HarnessService.Mode = HarnessService.cachedMode
     @State private var canEdit = false
     @State private var busy = false
     @State private var message: String?
+    @State private var openedApp: PushService.AppTarget?
 
     var body: some View {
         Form {
@@ -85,7 +87,12 @@ struct HarnessHubView: View {
         }
         .navigationTitle(String(localized: "Harness"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $openedApp) { target in
+            HarnessAppDetailView(appId: target.appId, initialTableId: target.tableId, initialRowId: target.rowId)
+                .environmentObject(appState)
+        }
         .task { await load() }
+        .onChange(of: appState.currentUser?.teamID) { _, _ in Task { await load() } }
     }
 
     private func load() async {
@@ -95,6 +102,11 @@ struct HarnessHubView: View {
             mode = state.mode
             canEdit = state.canEdit
             HarnessService.cachedMode = state.mode
+            if state.mode == .harness,
+               let target = notificationTarget,
+               target.orgId == at.orgId {
+                openedApp = target
+            }
         } catch {
             message = error.localizedDescription
         }
@@ -240,6 +252,8 @@ struct HarnessAppsView: View {
 
 struct HarnessAppDetailView: View {
     let appId: String
+    var initialTableId: String? = nil
+    var initialRowId: String? = nil
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var data: HarnessService.RenderedApp?
@@ -249,6 +263,7 @@ struct HarnessAppDetailView: View {
     @State private var room = ""
     @State private var confirmDelete = false
     @State private var message: String?
+    @State private var didOpenNotificationRecord = false
 
     /// A row to change, or a new one to add.
     struct EditTarget: Identifiable {
@@ -460,7 +475,16 @@ struct HarnessAppDetailView: View {
     }
 
     private func load(_ at: HarnessWhere) async {
-        do { data = try await HarnessService.app(appId, orgId: at.orgId, base: at.base) }
+        do {
+            let loaded = try await HarnessService.app(appId, orgId: at.orgId, base: at.base)
+            data = loaded
+            guard !didOpenNotificationRecord,
+                  let initialTableId, initialTableId == loaded.table.id,
+                  let initialRowId,
+                  let row = loaded.rows.first(where: { $0.id == initialRowId }) else { return }
+            didOpenNotificationRecord = true
+            editing = EditTarget(row: row)
+        }
         catch { message = error.localizedDescription }
     }
 }

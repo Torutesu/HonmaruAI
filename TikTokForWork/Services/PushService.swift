@@ -36,6 +36,9 @@ final class PushService: NSObject, ObservableObject {
     @Published var pendingCard: CardTarget?
     /// A chat notification tapped: where its message is, to open it there.
     @Published var pendingMessage: MessageTarget?
+    /// An App conversation notification tapped. The native Harness opens the
+    /// exact App and record; the message id remains available as context.
+    @Published var pendingApp: AppTarget?
 
     /// The card a notification is about, and the workspace it is in, as the
     /// Worker sends it (worker/src/notify.js).
@@ -68,6 +71,34 @@ final class PushService: NSObject, ObservableObject {
             self.messageId = messageId
             self.orgId = (info["orgId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             self.parentId = (info["parentId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+    }
+
+    /// An App notification carries the exact App and optional record scope.
+    /// The native app has record detail but no App conversation UI. Preserve
+    /// the originating message id while routing to the exact record.
+    struct AppTarget: Equatable, Identifiable {
+        let orgId: String
+        let appId: String
+        let messageId: String
+        let tableId: String?
+        let rowId: String?
+        let tap = UUID()
+        var id: UUID { tap }
+
+        init?(_ info: [AnyHashable: Any]) {
+            let messageId = (info["messageId"] as? String) ?? (info["messageId"] as? NSNumber)?.stringValue
+            guard info["kind"] as? String == "app_activity",
+                  let orgId = info["orgId"] as? String, !orgId.isEmpty,
+                  let appId = info["appId"] as? String, !appId.isEmpty,
+                  let messageId, !messageId.isEmpty else { return nil }
+            self.orgId = orgId
+            self.appId = appId
+            self.messageId = messageId
+            let table = (info["tableId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let row = (info["rowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let table, let row { self.tableId = table; self.rowId = row }
+            else { self.tableId = nil; self.rowId = nil }
         }
     }
 
@@ -310,9 +341,10 @@ extension PushService: UNUserNotificationCenterDelegate {
         // the feed for it left you on Home with nothing to show. A card's
         // carries its workspace, which may not be the one on screen.
         let message = MessageTarget(info)
+        let app = AppTarget(info)
         let card = CardTarget(info)
         Task { @MainActor in
-            if let message { PushService.shared.pendingMessage = message } else if let card { PushService.shared.pendingCard = card }
+            if let app { PushService.shared.pendingApp = app } else if let message { PushService.shared.pendingMessage = message } else if let card { PushService.shared.pendingCard = card }
         }
         // Answered immediately rather than inside the hop: the system wants to
         // know we handled the tap, not to wait for the feed to scroll.
