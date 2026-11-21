@@ -40,12 +40,6 @@ async function roomAppStamp(db, orgId, channel, appId, readerId) {
       WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL AND p.visibility='private' AND p.room_channel=?3`)
       .bind(orgId, appId, channel).first();
     if (!app || app.roomChannel !== channel) return null;
-    // A table shared through another App inherits that App's policy too. Keep
-    // this narrow tool to tables owned by exactly the selected Room App.
-    const links = await db.prepare(`SELECT id FROM hx_apps WHERE org_id=?1 AND deleted_at IS NULL AND (
-        table_id=?2 OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=hx_apps.org_id AND e.app_id=hx_apps.id AND e.table_id=?2))`)
-      .bind(orgId, app.tableId).all();
-    if ((links.results || []).length !== 1 || links.results[0].id !== app.id) return null;
     for (const person of people) {
       if (!await mayReadAppRows(db, orgId, app.id, app.tableId, person.userId)) return null;
     }

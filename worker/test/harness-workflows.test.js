@@ -2273,7 +2273,7 @@ test('a personal-agent follow-up reads connected sources before reporting and ne
     .toMatchObject({ status: 'done', result: expect.stringContaining('https://linear.app/acme/issue/INV-7') });
 });
 
-test('a Harness room follow-up reads only its room-shared App and cites a real matching row', async () => {
+test('a Harness room follow-up reads its room-shared App even when a private App points to the same table', async () => {
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
   const { upsertUser, upsertMembership } = await import('../src/db.js');
   await upsertUser(env.DB, { githubId: '9303', login: 'rina', name: 'Rina', avatarUrl: null, locale: 'en' });
@@ -2285,6 +2285,9 @@ test('a Harness room follow-up reads only its room-shared App and cites a real m
   })).status).toBe(200);
   const app = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
   expect((await send('PUT', `/apps/${app.id}/access`, mika, { orgId: ORG, visibility: 'room', channel: 'b:ops', version: 0 })).status).toBe(200);
+  // Another App can reference this table without making its own private App
+  // policy control reads explicitly authorized through the Room-shared App.
+  await env.DB.prepare('UPDATE hx_apps SET table_id=?1 WHERE org_id=?2 AND id=?3').bind(app.tableId, ORG, privateApp.id).run();
   await send('POST', `/tables/${app.tableId}/rows`, mika, { orgId: ORG, values: { Client: 'INV-7', Status: 'Paid' } });
   const { followup } = await (await import('../src/harness/followups.js')).scheduleFollowup(env.DB, {
     orgId: ORG, channel: 'b:ops', instruction: 'Check whether INV-7 is paid',
