@@ -12,6 +12,14 @@ test('retry preserves the draft and request identity, and duplicate submits are 
  await act(async()=>{void tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()});await tree!.root.findByType('form').props.onSubmit({preventDefault:vi.fn()})});
  expect(api.postConversation).toHaveBeenCalledTimes(2);expect(api.postConversation.mock.calls[0][3]).toBe(api.postConversation.mock.calls[1][3]);expect(tree!.root.findByType('textarea').props.value).toBe('');act(()=>tree!.unmount())
 })
+test('an authorized app activity event refreshes only its matching open conversation',async()=>{
+ vi.stubGlobal('document',{visibilityState:'visible'});const activityWindow=new EventTarget();vi.stubGlobal('window',activityWindow)
+ const api:any={conversation:vi.fn().mockResolvedValue({threadId:'app',messages:[],hasMore:false})};let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<AppConversationPanel api={api} appId="tasks" title="Tasks"/>)});expect(api.conversation).toHaveBeenCalledTimes(1)
+ await act(async()=>{activityWindow.dispatchEvent(new CustomEvent('honmaru:app-activity-changed',{detail:{appId:'other'}}));await Promise.resolve()});expect(api.conversation).toHaveBeenCalledTimes(1)
+ await act(async()=>{activityWindow.dispatchEvent(new CustomEvent('honmaru:app-activity-changed',{detail:{appId:'tasks'}}));await Promise.resolve()});expect(api.conversation).toHaveBeenCalledTimes(2)
+ act(()=>tree!.unmount())
+})
 test('record proposals require an explicit confirmation and expose undo after apply',async()=>{
  vi.stubGlobal('document',{visibilityState:'visible'});
  const proposal={id:'rp_1',status:'pending',fields:[{id:'title',name:'Title',value:'Updated'}],expiresAt:'2099-01-01T00:00:00.000Z'};

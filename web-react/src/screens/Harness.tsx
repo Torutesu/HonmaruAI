@@ -460,9 +460,12 @@ export const AppView: React.FC<HarnessProps & { api: HarnessApi; appId: string; 
   useEffect(()=>{
     let active=true
     const refreshAnnotations=()=>{void api.conversation(appId).then(result=>{if(active)setAnnotations(result.annotations||[])},()=>{if(active)setAnnotations([])})}
+    const onAppActivity=(event:Event)=>{if((event as CustomEvent<{appId?:string}>).detail?.appId===appId)refreshAnnotations()}
+    const activityWindow=typeof window==='undefined'?null:window
     refreshAnnotations()
+    activityWindow?.addEventListener('honmaru:app-activity-changed',onAppActivity)
     const interval=setInterval(()=>{if(document.visibilityState==='visible')refreshAnnotations()},15000)
-    return()=>{active=false;clearInterval(interval)}
+    return()=>{active=false;clearInterval(interval);activityWindow?.removeEventListener('honmaru:app-activity-changed',onAppActivity)}
   },[api,appId])
   const syncAnnotations=useCallback((next:AppAnnotation[])=>setAnnotations(next.filter(annotation=>!annotation.tableId&&!annotation.rowId)),[])
   const [newColumn, setNewColumn] = useState('')

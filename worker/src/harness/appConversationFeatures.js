@@ -19,6 +19,21 @@ import { queueAppNotificationPush } from '../pushes.js';
 
 const scopeOf = input => ({ tableId: input.tableId || '', rowId: input.rowId || '' });
 const error = (message, status=400) => ({error:message,status});
+/// Deliver only a cache-invalidation signal, and only to people who can read
+/// this exact App/record scope at the time of the write.
+export async function announceAppActivityChanged(db,env,orgId,appId,scope={},members=null){
+ if(!env||!appId)return;
+ try{
+  const recipients=members||await listMembers(db,orgId);
+  const deliveries=await Promise.all(recipients.map(async recipient=>{
+   if(!recipient?.login||!recipient?.userId)return null;
+   try{if((await appConversation(db,orgId,recipient.userId,appId,scope)).error)return null}
+   catch{return null}
+   return {to:recipient.login,event:custom('app_activity_changed',{appId})};
+  }));
+  await announceTo(env,orgId,deliveries.filter(Boolean));
+ }catch(cause){console.error('App activity signal failed',cause?.message||cause)}
+}
 export async function conversationSource(db, orgId, user, appId, input, write=false) {
  const app=await db.prepare('SELECT created_by FROM hx_apps WHERE org_id=? AND id=?').bind(orgId,appId).first();
  if(!app || !await mayUseApp(db,orgId,appId,user.github_id))return error('No such app.',404);
@@ -66,8 +81,9 @@ export async function notifyAppMentions(db,orgId,user,appId,input,messageId,env=
   if(recipient.userId===String(user.github_id)||String(recipient.role||'guest').trim().toLowerCase()==='guest')continue;
   if((await appConversation(db,orgId,recipient.userId,appId,scopeOf(input))).error)continue;
   const saved=await db.prepare('INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,?)').bind(orgId,appId,messageId,recipient.userId,'mention').run();
-  if(env){try{await queueAppNotificationPush(env,{orgId,appId,messageId,userId:recipient.userId,login:recipient.login})}catch(error){console.error('App mention push queue failed',error?.message||error)}if(saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);}
+  if(env)try{await queueAppNotificationPush(env,{orgId,appId,messageId,userId:recipient.userId,login:recipient.login})}catch(error){console.error('App mention push queue failed',error?.message||error)}
  }
+ await announceAppActivityChanged(db,env,orgId,appId,scopeOf(input),members);
 }
 export async function appNotifications(db,orgId,userId,appId,input,write=false,proof){
  if(!await mayUseApp(db,orgId,appId,userId))return error('No such app.',404);
@@ -148,9 +164,9 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
   }
   if(!await mayAnnounceFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof))return;
   try{await queueAppNotificationPush(env,{orgId,appId,messageId:reply.sequence,userId:user.github_id,login:user.login})}catch(error){console.error('App AI reply push queue failed',error?.message||error)}
-  // This signal only asks the client to reload its authorized activity.
-  // Keep app identity out of the relay if access changes during delivery.
-  await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{})}]);
+  // This signal carries no conversation data and only reaches current readers
+  // of this exact App/record scope.
+  await announceAppActivityChanged(db,env,orgId,appId,scope,await listMembers(db,orgId,user.github_id));
  }catch(e){await db.prepare("UPDATE hx_app_ai_replies SET status='failed',error=? WHERE message_id=? AND org_id=? AND app_id=?").bind(replySaved?'AIの回答は保存されましたが、通知を完了できませんでした。同じメッセージでは再実行されません。':e.message==='Access revoked.'?'会話へのアクセスが変更されました。':'AIに接続できませんでした。既存のAI設定・利用枠を確認してください。',messageId,orgId,appId).run();}
  finally { try { await complete?.dispose?.(); } catch { /* The answer outcome is already recorded. */ } }
 }
