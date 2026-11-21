@@ -183,7 +183,7 @@ test('typed column builder adds a select column with bounded options to the revi
 
 test('preview database schema builder sends an additive operation against its current revision',async()=>{
  const {tree,api}=await setup()
- const form=tree.root.findByProps({'aria-label':'検証DBの列を追加'})
+ const form=tree.root.findByProps({'aria-label':'Add a column to preview'})
  const name=form.findAllByType('input')[0]
  await act(async()=>name.props.onChange({target:{value:'Review status'}}))
  const type=form.findAllByType('select').at(-1)!
@@ -197,13 +197,13 @@ test('preview database schema builder sends an additive operation against its cu
 
 test('preview database advanced schema editor supports rename, conversion, drop and entity operations',async()=>{
  const {tree,api}=await setup()
- const form=tree.root.findByProps({'aria-label':'検証DBの高度なスキーマ変更'})
- const editor=tree.root.findByProps({'aria-label':'検証DBのスキーマ変更案'})
+ const form=tree.root.findByProps({'aria-label':'Advanced preview schema changes'})
+ const editor=tree.root.findByProps({'aria-label':'Preview schema proposal (JSON)'})
  const operations=[{op:'rename_column',entity:'primary',column:'task',name:'Title'},{op:'convert_column',entity:'primary',column:'amount',type:'number'},{op:'drop_empty_column',entity:'primary',column:'unused'},{op:'create_entity',entity:'people',name:'People',columns:[{name:'Name',type:'text'}]}]
  await act(async()=>editor.props.onChange({target:{value:JSON.stringify(operations,null,2)}}))
  await act(async()=>form.props.onSubmit({preventDefault:vi.fn()}))
  expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'fork_schema',forkId:'private-fork',revision:4,operations})
- expect(tree.root.findAllByType('summary').some(item=>item.children.join('')==='列の変換・削除・テーブル追加')).toBe(true)
+ expect(tree.root.findAllByType('summary').some(item=>item.children.join('')==='Advanced preview schema changes')).toBe(true)
  act(()=>tree.unmount())
 })
 
@@ -213,9 +213,9 @@ test('preview database queues deletion of an empty secondary entity without appl
   {key:'people',table:{id:'people-table',name:'People',columns:[{id:'name',name:'Name',type:'text'}]},rows:[]},
  ]}
  const {tree,api}=await setup([],{fork,version:1,entities:fork.entities,migrations:[]})
- const deleteProposal=tree.root.findAllByType('button').find(item=>item.children.join('')==='「People」の空テーブル削除案を追加')!
+ const deleteProposal=tree.root.findAllByType('button').find(item=>item.children.join('')==='Propose deleting empty table People')!
  await act(async()=>deleteProposal.props.onClick())
- expect(JSON.parse(tree.root.findByProps({'aria-label':'検証DBのスキーマ変更案'}).props.value)).toEqual([{op:'drop_entity',entity:'people'}])
+ expect(JSON.parse(tree.root.findByProps({'aria-label':'Preview schema proposal (JSON)'}).props.value)).toEqual([{op:'drop_entity',entity:'people'}])
  expect(api.databaseChange).not.toHaveBeenCalled()
  act(()=>tree.unmount())
 })
@@ -223,14 +223,14 @@ test('preview database queues deletion of an empty secondary entity without appl
 test('legacy preview warns before adopting current production as an explicit baseline',async()=>{
  const fork={id:'legacy-fork',revision:8,hasBaseline:false,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[{id:'row',values:{name:'Draft'},updatedAt:'2026-11-01T00:00:00.000Z'}]}]}
  const {tree,button,api}=await setup([],{fork,version:3,entities:fork.entities,migrations:[]})
- expect(tree.root.findByProps({'aria-label':'旧検証DBの比較基準'})).toBeTruthy()
- await act(async()=>button('古い検証DBの差分を引き継ぐ').props.onClick())
+ expect(tree.root.findByProps({'aria-label':'Legacy preview baseline'})).toBeTruthy()
+ await act(async()=>button('Carry over changes from legacy preview').props.onClick())
  expect(api.databaseChange).not.toHaveBeenCalled()
  expect(tree.root.findByProps({role:'alertdialog'})).toBeTruthy()
- await act(async()=>button('キャンセル').props.onClick())
+ await act(async()=>button('Cancel').props.onClick())
  expect(api.databaseChange).not.toHaveBeenCalled()
- await act(async()=>button('古い検証DBの差分を引き継ぐ').props.onClick())
- await act(async()=>button('現在の本番を基準に保存').props.onClick())
+ await act(async()=>button('Carry over changes from legacy preview').props.onClick())
+ await act(async()=>button('Use current production as baseline').props.onClick())
  expect(api.databaseChange).toHaveBeenCalledWith('app',{action:'fork_rebase_legacy',forkId:'legacy-fork',revision:8})
  act(()=>tree.unmount())
 })

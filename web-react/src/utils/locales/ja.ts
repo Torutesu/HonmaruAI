@@ -4466,4 +4466,33 @@ Object.assign(table, {'Add column to proposal':'列を変更案に追加','Natur
 Object.assign(table, {
   'Review production changes': '本番への反映差分を確認', 'Production changes from preview': '本番への反映差分', '{count} record changes · {schemaCount} schema changes': 'レコード差分 {count}件 · スキーマ差分 {schemaCount}件', ' · {applyCount} to apply · {keepCount} keep production': ' · 反映 {applyCount}件 · 本番を維持 {keepCount}件', 'Table added': 'テーブル追加', 'Table deleted': 'テーブル削除', 'Columns changed': '列構成を変更', Before: '変更前', After: '変更後', Operations: '操作', 'Resolve production conflicts': '本番との競合を解決', 'For each conflicting record, choose whether to apply the preview change or keep the production value. Your choices are reviewed again before applying.': '競合したレコードごとに、プレビューの変更を使うか、本番の内容を維持するか選んでください。選んだ内容は本番反映前に再確認されます。', 'Compare production and preview': '本番とプレビューを比較', Production: '本番', Preview: 'プレビュー', Resolution: '反映方法', 'Resolve conflict for {entity} {id}': '{entity} {id} の競合解決', 'Choose a resolution': '選択してください', 'Apply preview to production': 'プレビューの内容を本番に反映', 'Keep production value': '本番の内容を維持', Added: '追加', Removed: '削除', Updated: '更新', 'Keep production': '本番を維持', 'Apply preview': 'プレビューを反映', 'Record ID': 'レコード', 'Choose a resolution for every conflict, then review your choices.': '全競合の反映方法を選び、「選択内容を再確認」してください。', 'Review selected resolutions': '選択内容を再確認', 'The changes, including conflict resolutions, were reviewed again. Applying will be refused if production or the preview changes.': '選択した競合解決を含む差分を再確認しました。本番またはプレビューが変わると適用は拒否されます。', 'All displayed changes will be applied to production together. Applying stops if production or the preview changes after review. A merged preview becomes read-only. This does not automatically run row-change workflows.': '表示された差分をまとめて本番に反映します。確認後に本番または検証DBが変わると反映を中止します。反映済みの検証DBは読み取り専用になります。この反映で行変更ワークフローを自動実行することはありません。', 'Apply these changes to production': 'この差分を本番に反映', '{changed} reviewed changes and {schemaChanged} schema changes were applied to production.{keptProductionPart}': '確認した差分{changed}件とスキーマ変更{schemaChanged}件を本番に反映しました。{keptProductionPart}', ' Conflicts kept production values: {count}.': ' 本番を維持した競合: {count}件。',
 })
+Object.assign(table, {
+  'This preview database has been merged into production. Recreate it from production to continue editing.': 'この検証DBは本番反映済みです。編集を続けるには本番から作り直してください。',
+  'Legacy preview baseline': '旧検証DBの比較基準',
+  'This legacy preview has no baseline': 'この古い検証DBには比較基準がありません',
+  'The original production data from when this preview was created cannot be recovered. You can record current production as a new baseline and review all changes again while keeping this preview unchanged.': '作成時点の本番データは復元できません。現在の本番を新しい基準として記録し、この検証DBの変更を保ったまま、全差分を改めてレビューできます。',
+  'Carry over changes from legacy preview': '古い検証DBの差分を引き継ぐ',
+  'Use current production as baseline': '現在の本番を比較基準にする',
+  'Save current production as the baseline. All records added, changed, or deleted in the legacy preview will become proposed changes and must be reviewed before applying. This save is refused if production or the preview changes while the baseline is being created.': '現在の本番データを基準として保存します。古い検証DBの追加・変更・削除はすべて反映案となり、次の差分レビューで確認が必要です。基準作成中に本番または検証DBが変わると保存を拒否します。',
+  'Current production was saved as the baseline. The legacy preview was kept unchanged. Review the diff before applying it.': '現在の本番を比較基準として保存しました。古い検証DBはそのまま維持されています。差分を確認してから本番へ反映してください。',
+  'Table to edit in preview': '検証するテーブル',
+  'Preview record (JSON keyed by field ID)': '検証レコード（項目IDをキーにしたJSON）',
+  'Add to preview only': '検証DBだけに追加',
+  'Add a column to preview': '検証DBの列を追加',
+  'Column added to preview. Review the diff before applying it.': '検証DBに列を追加しました。プレビューして差分を確認してください。',
+  'Table for new preview column': '検証DBに追加する列のテーブル',
+  'Relation target table': 'リンク先テーブル',
+  'Number of linked records': 'リンク数',
+  'Single': '1件',
+  'Add column to preview': '検証DBに列を追加',
+  'Advanced preview schema changes': '列の変換・削除・テーブル追加',
+  'Changes are saved only in the preview. Specify operations such as rename_column, convert_column, drop_empty_column, and create_entity as JSON. Values that cannot be converted and non-empty columns cannot be deleted.': '変更は検証DBの中だけに保存されます。rename_column、convert_column、drop_empty_column、create_entity などの操作をJSONで指定できます。変換不能な値や空でない列の削除は拒否されます。',
+  'Proposed preview table deletions': '検証DBのテーブル削除案',
+  'Propose deleting empty table {table}': '「{table}」の空テーブル削除案を追加',
+  'Delete all records from the preview table and update related relations and workflows before saving this proposal. Tables referenced by workflows cannot be deleted.': 'テーブル内の全レコードを検証DBから削除し、参照RelationとWorkflowを整理してから変更案を保存してください。Workflowが参照中のテーブルは削除できません。',
+  'Preview schema proposal (JSON)': '検証DBのスキーマ変更案（JSON）',
+  'Preview schema changes saved. Review the diff before applying them to production.': '検証DBのスキーマ変更を保存しました。差分を確認してから本番へ反映してください。',
+  'Save schema proposal to preview': 'スキーマ変更を検証DBに保存',
+  'Cloudflare Pages': 'Cloudflare Pages',
+})
 export default table
