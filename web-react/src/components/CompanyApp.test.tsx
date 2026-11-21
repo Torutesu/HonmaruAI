@@ -28,6 +28,31 @@ test('server action history loads own paged runs and only fetches a result when 
  act(()=>tree!.unmount())
 })
 
+test('an opened in-progress action result refreshes automatically until it finishes',async()=>{
+ vi.useFakeTimers()
+ const runItem={id:'run-live',actionName:'report',actionVersion:2,status:'running',createdAt:1000,startedAt:1001,finishedAt:null}
+ const api:any={
+  appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),
+  appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),
+  actionRunHistory:vi.fn().mockResolvedValue({runs:[runItem]}),
+  actionJob:vi.fn().mockResolvedValueOnce({job:{...runItem,result:null}}).mockResolvedValueOnce({job:{...runItem,status:'succeeded',finishedAt:1003,result:{stdout:'done'}}}),
+ }
+ let tree:ReturnType<typeof create>|undefined
+ try{
+  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api} canManage reload={vi.fn()}/>);await Promise.resolve()})
+  const button=(text:string)=>tree!.root.findAllByType('button').find(item=>item.children.join('')===text)!
+  await act(async()=>button('Load execution history').props.onClick())
+  await act(async()=>button('View result').props.onClick())
+  expect(api.actionJob).toHaveBeenCalledTimes(1)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
+  expect(api.actionJob).toHaveBeenCalledTimes(2)
+  expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('done'))).toBe(true)
+ }finally{
+  if(tree)act(()=>tree!.unmount())
+  vi.useRealTimers()
+ }
+})
+
 async function setup(conflicts:unknown[]=[],database:any=null) {
  const fork={id:'private-fork',revision:4,entities:[{key:'primary',table:{id:'table',name:'Tasks',columns:[]},rows:[]}]}
  const review={forkId:fork.id,revision:4,checksum:'reviewed-digest',resolved:conflicts.length===0,conflicts,changes:[{entity:'primary',tableId:'table',tableName:'Tasks',id:'row',operation:'create' as const,before:null,after:{name:'Draft'}}]}
