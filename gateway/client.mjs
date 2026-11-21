@@ -114,16 +114,27 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
   let checking = false, leaseLost = false, refused = false, browserAuthorizationLost = false, lastHeartbeatAt = Date.now();
-  const runFencedBrowserAction = async (authorizationPath, action, options, parentSignal = cancel.signal) => {
+  let controlAuthorizationLost = false;
+  const runFencedBrowserAction = async (authorizationPath, action, options, parentSignal = cancel.signal, controlAuthorization = null) => {
     const monitorStop = new AbortController();
     const actionStop = new AbortController();
     const monitorSignal = AbortSignal.any([monitorStop.signal, parentSignal]);
     const actionSignal = AbortSignal.any([cancel.signal, parentSignal, actionStop.signal]);
+    const authorizationBody = { lease: job.lease, ...(controlAuthorization || {}) };
+    if (controlAuthorization) {
+      try { await call(authorizationPath, authorizationBody, { signal: monitorSignal }); }
+      catch (error) { controlAuthorizationLost = true; throw error; }
+    }
     const monitor = (async () => {
       while (!monitorSignal.aborted) {
-        try { await call(authorizationPath, { lease: job.lease }, { signal: monitorSignal }); }
+        try { await call(authorizationPath, authorizationBody, { signal: monitorSignal }); }
         catch (error) {
           if (monitorStop.signal.aborted || parentSignal?.aborted || cancel.signal.aborted) return;
+          if (controlAuthorization) {
+            controlAuthorizationLost = true;
+            actionStop.abort();
+            return;
+          }
           if ([401, 403, 409].includes(error?.status)) {
             browserAuthorizationLost = true;
             refused = true;
@@ -199,14 +210,17 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
             try{await sleep(browserControlPollIntervalMs,undefined,{signal:controlSignal});}catch{return;}
             try{
               const {controls=[]}=await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,poll:true},{signal:controlSignal});
-              for(const action of controls.slice(0,5))await withBrowser(async()=>{
-                await runFencedBrowserAction(`jobs/${job.id}/browser`,action,browserOptions,controlSignal);
-                const frame=await runFencedBrowserAction(`jobs/${job.id}/browser`,{type:'screenshot'},browserOptions,controlSignal);
+              for(const control of controls.slice(0,5))await withBrowser(async()=>{
+                if(!control||typeof control.controllerId!=='string'||!Number.isFinite(control.expiresAt)||!control.action)return;
+                const controlAuthorization={controllerId:control.controllerId,controlExpiresAt:control.expiresAt};
+                await runFencedBrowserAction(`jobs/${job.id}/browser`,control.action,browserOptions,controlSignal,controlAuthorization);
+                const frame=await runFencedBrowserAction(`jobs/${job.id}/browser`,{type:'screenshot'},browserOptions,controlSignal,controlAuthorization);
                 if(typeof frame?.image==='string'&&frame.image.length<=2_800_000)
-                  await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image},{signal:controlSignal});
+                  await call(`jobs/${job.id}/browser-frame`,{lease:job.lease,image:frame.image,...controlAuthorization},{signal:controlSignal});
               });
             }catch(error){
               if(controlSignal.aborted)return;
+              if(controlAuthorizationLost){controlAuthorizationLost=false;continue;}
               if(error?.status&&error.status<500&&![408,429].includes(error.status))return;
             }
           }

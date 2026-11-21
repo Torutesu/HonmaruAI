@@ -46,7 +46,7 @@ test("live browser frames and controls stay inside the current private-room memb
   await setMode(env.DB, "core-team", "harness", "1001");
 
   const { ws: owner, messages: ownerMessages } = await joined("core-team", globalThis.__tokenA);
-  const { ws: secondOwnerTab, messages: secondOwnerMessages } = await joined("core-team", globalThis.__tokenA);
+  let { ws: secondOwnerTab, messages: secondOwnerMessages } = await joined("core-team", globalThis.__tokenA);
   const { ws: roomMember, messages: memberMessages } = await joined("core-team", globalThis.__tokenB);
   const { ws: outsider, messages: outsiderMessages } = await joined("core-team", outsiderToken);
   owner.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
@@ -74,7 +74,21 @@ test("live browser frames and controls stay inside the current private-room memb
   const controls = await relay.fetch(new Request(`https://relay.invalid/desktop/controls?orgId=core-team`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId }),
   }));
-  expect(await controls.json()).toEqual({ controls: [{ type: "click", x: 44, y: 86 }] });
+  const deliveredControls = await controls.json();
+  expect(deliveredControls.controls).toHaveLength(1);
+  const [deliveredControl] = deliveredControls.controls;
+  expect(deliveredControl).toMatchObject({ action: { type: "click", x: 44, y: 86 }, controllerId: expect.any(String), expiresAt: expect.any(Number) });
+  const authorizeControl = () => relay.fetch(new Request(`https://relay.invalid/desktop/authorize-control?orgId=core-team`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jobId, controllerId: deliveredControl.controllerId, expiresAt: deliveredControl.expiresAt }),
+  }));
+  expect((await authorizeControl()).status).toBe(200);
+  secondOwnerTab.close();
+  await until(() => secondOwnerTab.readyState === 3);
+  expect((await authorizeControl()).status).toBe(403);
+  ({ ws: secondOwnerTab, messages: secondOwnerMessages } = await joined("core-team", globalThis.__tokenA));
+  secondOwnerTab.send(JSON.stringify({ type: "desktop_join", payload: { jobId } }));
+  expect(await message(secondOwnerMessages, m => m.type === "CUSTOM" && m.name === "browser_frame_ready" && m.value?.jobId === jobId)).toMatchObject({ value: { canControl: true } });
 
   const sendFrame = () => relay.fetch(new Request(`https://relay.invalid/desktop/frame?orgId=core-team`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId, image: "/9j/AA==" }),
@@ -99,7 +113,7 @@ test("live browser frames and controls stay inside the current private-room memb
   secondOwnerTab.close();
   roomMember.close();
   outsider.close();
-});
+}, 10000);
 
 test("join then a created card round-trips to a second client", async () => {
   const { ws: a } = await joined("core-team", globalThis.__tokenA);

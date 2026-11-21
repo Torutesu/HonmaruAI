@@ -152,10 +152,37 @@ export class OrgRelay {
         if(String(item.userId)!==String(job.created_by) || !activeControllers.has(item.controllerId) ||
             Number(item.expiresAt) <= at || !(await allowed(this.db,orgId,item.userId,'harness.build')) ||
             !(await mayUseConversation(this.db,orgId,item.userId,payload.browserContext?.channel)))continue;
-        if(controls.length<5)controls.push(item.action);else remaining.push(item);
+        if(controls.length<5)controls.push({ action: item.action, controllerId: item.controllerId, expiresAt: item.expiresAt });else remaining.push(item);
       }
       if(remaining.length)this.desktopControls?.set(job.id,remaining);else this.desktopControls?.delete(job.id);
       return Response.json({ controls });
+    }
+
+    if (url.pathname === '/desktop/authorize-control' && request.headers.get("Upgrade") !== "websocket") {
+      if (request.method !== 'POST') return new Response('not found', { status: 404 });
+      let requestData;
+      try { requestData = await request.json(); } catch { return new Response('bad request', { status: 400 }); }
+      const { jobId, controllerId, expiresAt } = requestData || {};
+      if (typeof jobId !== 'string' || jobId.length > 80 || typeof controllerId !== 'string' || controllerId.length > 80 ||
+          !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return new Response('control expired', { status: 403 });
+      const job = await this.db.prepare("SELECT id,org_id,created_by,payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'")
+        .bind(orgId, jobId).first();
+      if (!job || await getMode(this.db, orgId) !== 'harness') return new Response('control unavailable', { status: 403 });
+      let payload;
+      try { payload = JSON.parse(job.payload); } catch { return new Response('control unavailable', { status: 403 }); }
+      if (!await browserConversationAllowed(this.db, orgId, job.created_by, payload.browserContext)) return new Response('control unavailable', { status: 403 });
+      const now = Date.now();
+      for (const ws of this.state.getWebSockets()) {
+        if (ws.readyState !== 1) continue;
+        const att = ws.deserializeAttachment() || {};
+        if (att.desktopJobId === job.id && att.desktopCanControl === true && String(att.githubId) === String(job.created_by) &&
+            att.desktopControlId === controllerId && Number(att.desktopControlUntil) >= expiresAt && Number(att.desktopControlUntil) > now &&
+            await allowed(this.db, orgId, att.githubId, 'harness.build') &&
+            await mayUseConversation(this.db, orgId, att.githubId, payload.browserContext?.channel)) {
+          return Response.json({ authorized: true });
+        }
+      }
+      return new Response('control was released or expired', { status: 403 });
     }
 
     // Cards written outside this object — a connector sync, which runs in the
