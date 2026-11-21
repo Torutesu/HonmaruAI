@@ -30,4 +30,19 @@ describe('API origin configuration', () => {
     await api.workflowRunsPage('wf',{limit:50})
     expect(fetch.mock.calls[1][0]).toBe('/api/workflows/wf/runs?orgId=workspace-1&limit=50')
   })
+  it('uses scoped table contract routes and pins publication to the observed schema version',async()=>{
+    const fetch=vi.spyOn(globalThis,'fetch').mockImplementation(async(_input,init)=>new Response(JSON.stringify((init as RequestInit).method==='POST'?{contractVersion:'a'.repeat(64),created:true}:{}),{status:200}))
+    const api=harnessApi('/api','workspace-1','session')
+    await api.tableContract('table/one')
+    await api.tableContracts('table/one')
+    await api.tableContractVersion('table/one','a'.repeat(64))
+    await api.publishTableContract('table/one','2026-11-21T00:00:00Z')
+    expect(fetch.mock.calls.map(([url])=>url)).toEqual([
+      '/api/tables/table%2Fone/contract?orgId=workspace-1',
+      '/api/tables/table%2Fone/contracts?orgId=workspace-1',
+      `/api/tables/table%2Fone/contracts/${'a'.repeat(64)}?orgId=workspace-1`,
+      '/api/tables/table%2Fone/contracts',
+    ])
+    expect(JSON.parse(String(fetch.mock.calls[3][1]?.body))).toEqual({orgId:'workspace-1',expectedUpdatedAt:'2026-11-21T00:00:00Z'})
+  })
 })

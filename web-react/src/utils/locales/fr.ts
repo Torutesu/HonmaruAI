@@ -2763,4 +2763,14 @@ Object.assign(table, {
 })
 Object.assign(table, { 'Column relation target table': 'Table cible de la relation' })
 Object.assign(table, { 'Column relation cardinality': 'Nombre d’éléments liés après conversion' })
+Object.assign(table, {
+  'Step AI usage': 'Utilisation de l’IA par étape', 'Input tokens': 'Jetons d’entrée', 'Output tokens': 'Jetons de sortie',
+  'Estimated model cost': 'Coût estimé du modèle', '{count} unpriced calls': '{count} appels sans prix',
+  'Step duration': 'Durée de l’étape', 'Operation ID': 'ID de l’opération', 'Authorization checks': 'Vérifications des autorisations',
+  'Access checks': 'Vérifications des accès', 'Actor': 'Acteur', 'Resource': 'Ressource', 'Allowed': 'Autorisé', 'Denied': 'Refusé',
+  'Workflow resource': 'Ressource du workflow', 'Conversation resource': 'Ressource de conversation', 'Agent resource': 'Ressource de l’agent',
+  'Table resource': 'Ressource de table', 'App resource': 'Ressource de l’application', 'Connection resource': 'Ressource de connexion', 'Member resource': 'Ressource de membre'
+})
+Object.assign(table,{'Immutable table API contracts':'Contrats API immuables des tables','Publish a content-addressed OpenAPI snapshot for strict table CRUD. Existing requests and Simple mode remain unchanged.':'Publiez un instantané OpenAPI adressé par contenu pour un CRUD strict des tables. Les requêtes existantes et le mode Simple restent inchangés.','Add a table to publish its API contract.':'Ajoutez une table pour publier son contrat API.','Contract table':'Table du contrat','Publish immutable contract':'Publier le contrat immuable','Contract version':'Version du contrat','Current schema preview':'Aperçu du schéma actuel','Download OpenAPI JSON':'Télécharger le JSON OpenAPI','Immutable API contract published.':'Le contrat API immuable a été publié.','This API contract already exists.':'Ce contrat API existe déjà.','Table version is loading or unavailable. Refresh the database to publish.':'La version de la table est en cours de chargement ou indisponible. Actualisez la base de données pour publier.','Pinned version':'Version figée','Former member':'Ancien membre','OpenAPI contract JSON':'JSON du contrat OpenAPI','SDK generation command':'Commande de génération du SDK','SDK generation command copied.':'Commande de génération du SDK copiée.','Copy SDK command':'Copier la commande du SDK'})
+Object.assign(table,{'Table API contracts are unavailable in this environment.':'Les contrats API de table ne sont pas disponibles dans cet environnement.'})
 export default table

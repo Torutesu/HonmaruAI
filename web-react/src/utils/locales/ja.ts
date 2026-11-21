@@ -4533,4 +4533,14 @@ Object.assign(table, {
 })
 Object.assign(table, { 'Column relation target table': '変換先Relationテーブル' })
 Object.assign(table, { 'Column relation cardinality': '変換先Relationの件数' })
+Object.assign(table, {
+  'Step AI usage': 'ステップのAI使用量', 'Input tokens': '入力トークン', 'Output tokens': '出力トークン',
+  'Estimated model cost': 'モデル費用の概算', '{count} unpriced calls': '単価不明 {count} 件',
+  'Step duration': 'ステップの所要時間', 'Operation ID': '操作ID', 'Authorization checks': '権限チェック',
+  'Access checks': 'アクセス権の確認', 'Actor': '実行主体', 'Resource': '対象', 'Allowed': '許可', 'Denied': '拒否',
+  'Workflow resource': 'ワークフロー', 'Conversation resource': '会話', 'Agent resource': 'エージェント',
+  'Table resource': 'テーブル', 'App resource': 'アプリ', 'Connection resource': '連携', 'Member resource': 'メンバー'
+})
+Object.assign(table,{'Immutable table API contracts':'不変のテーブルAPI契約','Publish a content-addressed OpenAPI snapshot for strict table CRUD. Existing requests and Simple mode remain unchanged.':'厳密なテーブルCRUD用にコンテンツアドレス指定されたOpenAPIスナップショットを公開します。既存のリクエストとシンプル版はそのまま使えます。','Add a table to publish its API contract.':'API契約を公開するにはテーブルを追加してください。','Contract table':'契約対象テーブル','Publish immutable contract':'不変の契約を公開','Contract version':'契約バージョン','Current schema preview':'現在のスキーマをプレビュー','Download OpenAPI JSON':'OpenAPI JSONをダウンロード','Immutable API contract published.':'不変のAPI契約を公開しました。','This API contract already exists.':'このAPI契約はすでに存在します。','Table version is loading or unavailable. Refresh the database to publish.':'テーブルのバージョンを取得できないか、読み込み中です。データベースを再読み込みしてから公開してください。','Pinned version':'固定バージョン','Former member':'元メンバー','OpenAPI contract JSON':'OpenAPI契約JSON','SDK generation command':'SDK生成コマンド','SDK generation command copied.':'SDK生成コマンドをコピーしました。','Copy SDK command':'SDKコマンドをコピー'})
+Object.assign(table,{'Table API contracts are unavailable in this environment.':'この環境ではテーブルAPI契約を利用できません。'})
 export default table
