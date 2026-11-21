@@ -1157,7 +1157,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
         source = generateTableSdkFromContract(pinned.contract, pinned.contractVersion);
         tableName = pinned.contract["x-honmaru-table"].name;
       } else {
-        if (options.orgId !== undefined) throw new Error("--org-id is only used with --contract-version.");
+        const orgId = options.orgId || env.HONMARU_ORG_ID;
+        const sessionToken = env.HONMARU_SESSION_TOKEN;
+        if (!orgId) throw new Error("Set HONMARU_ORG_ID or pass --org-id to generate a REST client.");
+        if (!sessionToken) throw new Error("Set HONMARU_SESSION_TOKEN to generate a REST client.");
         const result = await client.callTool("list_tables");
         const table = result?.structuredContent?.tables?.find((item) => item.id === tableId);
         if (!table) throw new Error("No accessible table matches that ID.");

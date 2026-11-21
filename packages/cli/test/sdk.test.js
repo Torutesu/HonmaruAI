@@ -18,19 +18,27 @@ test("table SDK generator derives nullable column-ID types and typed row operati
   assert.match(source, /"col_status": string \| null/);
   assert.match(source, /"col_count": number \| null/);
   assert.match(source, /"col_enabled": boolean \| null/);
-  assert.match(source, /query_rows/);
-  assert.match(source, /add_row/);
-  assert.match(source, /update_row/);
+  assert.match(source, /"x-session-token": sessionToken/);
+  assert.match(source, /validation: "strict"/);
+  assert.match(source, /expectedUpdatedAt: string/);
+  assert.match(source, /"PATCH"/);
+  assert.match(source, /"DELETE"/);
+  assert.doesNotMatch(source, /query_rows|add_row|update_row/);
   assert.match(source, /TABLE_ID = "table_1"/);
   assert.throws(() => generateTableSdk({ id: "table_2", columns: [] }), /no columns/);
 });
 
 test("pinned OpenAPI contract generates a version-labeled SDK", () => {
   const contractVersion = "a".repeat(64);
-  const source = generateTableSdkFromContract({ openapi: "3.1.0", "x-honmaru-table": table }, contractVersion);
+  const contract = { openapi: "3.1.0", "x-honmaru-table": table, paths: {
+    "/tables/table_1": { get: {} }, "/tables/table_1/rows": { post: {} },
+    "/tables/table_1/rows/{rowId}": { patch: {}, delete: {} },
+  } };
+  const source = generateTableSdkFromContract(contract, contractVersion);
   assert.match(source, new RegExp(`CONTRACT_VERSION = "${contractVersion}"`));
   assert.match(source, /"col_status": string \| null/);
   assert.throws(() => generateTableSdkFromContract({ openapi: "3.0.3" }, contractVersion), /invalid/);
+  assert.throws(() => generateTableSdkFromContract({ ...contract, paths: {} }, contractVersion), /required strict row operations/);
   assert.throws(() => generateTableSdk(table, { contractVersion: "not-a-hash" }), /invalid/);
 });
 
@@ -46,12 +54,30 @@ test("workspace sdk generate fetches the accessible contract and writes a TypeSc
       return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: { tables: [table] } } }), { status: 200 });
     };
     const code = await runCli(["workspace", "sdk", "generate", "table_1", "--out", path], {
-      env: { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token }, fetcher, stdout, stderr,
+      env: { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token, HONMARU_SESSION_TOKEN: "signed-in-session", HONMARU_ORG_ID: "workspace" }, fetcher, stdout, stderr,
     });
     assert.equal(code, 0, stderr.text);
     assert.equal(request.params.name, "list_tables");
     assert.match(stdout.text, /Generated typed client/);
     assert.match(await readFile(path, "utf8"), /export function createHonmaruClient/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("workspace sdk generation refuses to produce a client without its workspace session context", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "honmaru-sdk-context-"));
+  try {
+    const path = join(dir, "pipeline.ts");
+    const stderr = { text: "", write(chunk) { this.text += chunk; } };
+    const code = await runCli(["workspace", "sdk", "generate", "table_1", "--out", path], {
+      env: { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token },
+      fetcher: async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { structuredContent: { tables: [table] } } }), { status: 200 }),
+      stderr,
+    });
+    assert.equal(code, 1);
+    assert.match(stderr.text, /HONMARU_ORG_ID/);
+    await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -71,7 +97,10 @@ test("workspace sdk generate fetches a hash-pinned contract with the signed-in s
         const request = JSON.parse(init.body);
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { structuredContent: { tables: [table] } } }), { status: 200 });
       }
-      return new Response(JSON.stringify({ contractVersion, contract: { openapi: "3.1.0", "x-honmaru-table": table } }), { status: 200 });
+      return new Response(JSON.stringify({ contractVersion, contract: { openapi: "3.1.0", "x-honmaru-table": table, paths: {
+        "/tables/table_1": { get: {} }, "/tables/table_1/rows": { post: {} },
+        "/tables/table_1/rows/{rowId}": { patch: {}, delete: {} },
+      } } }), { status: 200 });
     };
     const code = await runCli(["workspace", "sdk", "generate", "table_1", "--contract-version", contractVersion, "--org-id", "workspace", "--out", path], {
       env: { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token, HONMARU_SESSION_TOKEN: "signed-in-session" }, fetcher, stdout, stderr,
