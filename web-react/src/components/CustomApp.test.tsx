@@ -8,6 +8,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 const table = { id: 'only-this-table', name: 'Tasks', columns: [] }
 test('custom app history distinguishes the active published release from a restorable old release', () => {
   const restore = vi.fn()
+  vi.stubGlobal('localStorage', { getItem: () => 'ja' })
   let tree: ReturnType<typeof create>
   act(() => { tree = create(<CustomAppReleaseHistory history={[
     { version: 5, note: 'Custom app: publish', createdAt: '2026-11-10T00:00:00Z', release: { publishedAt: '2026-11-10T00:00:00Z', publishedBy: '9101', publishedByName: 'Custom Publisher', source: 'github-commit', commitSha: '0123456789abcdef', current: true, status: 'current', version: 5, isReleaseVersion: true }, approvals: [{ kind: 'github-commit', status: 'published', requestedBy: '9102', requestedByName: 'Reviewer', reviewerId: '9101', reviewerName: 'Custom Publisher', requestedAt: '2026-11-09T00:00:00Z', reviewedAt: '2026-11-09T00:01:00Z' }] },
@@ -17,6 +18,7 @@ test('custom app history distinguishes the active published release from a resto
     { version: 7, note: 'Custom app: unpublish', createdAt: '2026-11-12T00:00:00Z', release: null, releaseEvent: { type: 'unpublished', at: '2026-11-12T00:00:00Z', by: '9101' } },
   ]} busy={false} restore={restore} />) })
   const statuses = tree!.root.findAllByProps({ role: 'status' }).map(node => node.children.join(''))
+  expect(tree!.root.findAllByType('p').some(node => node.children.join('').includes(new Date('2026-11-10T00:00:00Z').toLocaleString('ja')))).toBe(true)
   expect(statuses[0]).toContain('Currently published')
   expect(statuses[0]).toContain('GitHub 0123456789ab')
   expect(statuses[0]).toContain('Published by Custom Publisher')

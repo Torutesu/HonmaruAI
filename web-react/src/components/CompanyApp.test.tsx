@@ -50,6 +50,35 @@ test('server action history loads own paged runs and only fetches a result when 
  act(()=>tree!.unmount())
 })
 
+test('server action run history localizes timestamps and backend statuses',async()=>{
+ const localeStorage={value:'es',getItem(){return this.value},setItem(_key:string,value:string){this.value=value},removeItem(){this.value=''}}
+ vi.stubGlobal('localStorage',localeStorage)
+ changeLocale('es')
+ await localeReady()
+ const startedAt=Date.parse('2026-11-10T12:00:00.000Z'),createdAt=Date.parse('2026-11-10T11:59:00.000Z')
+ const runItem={id:'run-localized',actionName:'report',actionVersion:3,status:'queued',createdAt,startedAt,finishedAt:null}
+ const api:any={
+  appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),
+  appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),
+  actionRunHistory:vi.fn().mockResolvedValue({runs:[runItem]}),
+  actionJob:vi.fn().mockResolvedValue({job:{...runItem,status:'failed',result:{error:'safe failure'}}}),
+ }
+ let tree:ReturnType<typeof create>|undefined
+ try{
+  await act(async()=>{tree=create(<CompanyApp app={{id:'app'}as any} api={api} canManage reload={vi.fn()}/>);await Promise.resolve()})
+  const button=(text:string)=>tree!.root.findAllByType('button').find(item=>item.children.join('')===text)!
+  await act(async()=>button('Cargar historial de ejecuciones').props.onClick())
+  const date=new Date(createdAt).toLocaleString('es')
+  expect(tree!.root.findAllByType('p').some(item=>item.children.join('').includes(`En cola · ${date}`))).toBe(true)
+  await act(async()=>button('Ver resultado').props.onClick())
+  expect(tree!.root.findAllByType('p').some(item=>item.children.join('').includes('Estado de ejecución: Fallido'))).toBe(true)
+ }finally{
+  if(tree)act(()=>tree!.unmount())
+  changeLocale('en')
+  vi.unstubAllGlobals()
+ }
+})
+
 test('an opened in-progress action result refreshes automatically until it finishes',async()=>{
  vi.useFakeTimers()
  const runItem={id:'run-live',actionName:'report',actionVersion:2,status:'running',createdAt:1000,startedAt:1001,finishedAt:null}

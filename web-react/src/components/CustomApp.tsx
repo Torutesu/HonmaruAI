@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAppearance } from '../utils/appearance'
 import { useT } from '../utils/i18n'
+import { formatHistoryDate } from '../utils/appExecutionHistory'
 import type { App, AppAction, AppConnection, AppFork, AppEntity, HarnessApi, Row, Table } from '../utils/harness'
 
 import {MAX_PREVIEW_SOURCE} from '../utils/customAppLimits'
@@ -176,11 +177,11 @@ export function CustomAppReleaseHistory({ history, busy, restore }: { history: C
     current: t('Currently published'), replaced: t('Replaced by a later version'), stopped: t('Publication stopped'),
   }
   return <>{history.filter(v => v.note?.startsWith('Custom app:') || v.note?.startsWith('GitHub commit:')).map(v => <article key={v.version} className="hx-custom-history-entry">
-    <p><strong>v{v.version}</strong> · {v.note} · {new Date(v.createdAt).toLocaleString()}</p>
-    {v.release ? <p role="status">{v.release.isReleaseVersion ? releaseStatus[v.release.status] : t('Published version v{version} remains active', { version: v.release.version })} · {new Date(v.release.publishedAt).toLocaleString()} · {v.release.source === 'github-commit' ? t('GitHub {sha}', { sha: v.release.commitSha?.slice(0, 12) || '' }) : t('Custom code')} · {t('Published by {name}', { name: v.release.publishedByName || v.release.publishedBy })}</p>
-      : v.releaseEvent?.type === 'unpublished' ? <p role="status">{t('Publication stopped')} · {new Date(v.releaseEvent.at).toLocaleString()}</p>
+    <p><strong>v{v.version}</strong> · {v.note} · {formatHistoryDate(v.createdAt,t)}</p>
+    {v.release ? <p role="status">{v.release.isReleaseVersion ? releaseStatus[v.release.status] : t('Published version v{version} remains active', { version: v.release.version })} · {formatHistoryDate(v.release.publishedAt,t)} · {v.release.source === 'github-commit' ? t('GitHub {sha}', { sha: v.release.commitSha?.slice(0, 12) || '' }) : t('Custom code')} · {t('Published by {name}', { name: v.release.publishedByName || v.release.publishedBy })}</p>
+      : v.releaseEvent?.type === 'unpublished' ? <p role="status">{t('Publication stopped')} · {formatHistoryDate(v.releaseEvent.at,t)}</p>
         : <p>{t('Unpublished draft')}</p>}
-    {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? t('GitHub commit review') : t('Publication review')} · {approvalStatus[approval.status]} · {t('Requested by {name}', { name: approval.requestedByName })} · {approval.reviewedAt ? t('Reviewed by {name} · {time}', { name: approval.reviewerName || approval.reviewerId || '', time: new Date(approval.reviewedAt).toLocaleString() }) : t('Requested {time}', { time: new Date(approval.requestedAt).toLocaleString() })}</p>)}
+    {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? t('GitHub commit review') : t('Publication review')} · {approvalStatus[approval.status]} · {t('Requested by {name}', { name: approval.requestedByName })} · {approval.reviewedAt ? t('Reviewed by {name} · {time}', { name: approval.reviewerName || approval.reviewerId || '', time: formatHistoryDate(approval.reviewedAt,t) }) : t('Requested {time}', { time: formatHistoryDate(approval.requestedAt,t) })}</p>)}
     {v.release?.isReleaseVersion && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore this published version as a draft')}</button><p>{t('After restoring, publish it again under the current approval rules. The history will record it as a new version.')}</p></> : !v.release && !v.releaseEvent ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore draft')}</button> : null}
   </article>)}</>
 }
@@ -261,7 +262,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       <p>{t('Sync HTML and static assets to this app’s dedicated branch using your GitHub account permissions. After connecting, new commits are checked about once a minute and imported into this app’s saved draft. Published apps are not changed automatically. Review changes in the isolated preview database; the existing approval process applies to publishing.')}</p>
       {commitState?.gitDraft ? <>
         <p role="status">{t('Connected to')} <code>{commitState.gitDraft.owner}/{commitState.gitDraft.repo}</code> · {t('Branch')} <code>{commitState.gitDraft.branch}</code> · {t('File')} <code>{commitState.gitDraft.path}</code>{commitState.gitDraft.headSha&&<> · HEAD <code>{commitState.gitDraft.headSha.slice(0,12)}</code></>}</p>
-        {commitState.gitDraftAutoSync?.lastError?<p role="alert">{t('GitHub automatic sync is paused. Check the GitHub connection and branch.')} {commitState.gitDraftAutoSync.lastError}</p>:<p role="status">{t('Automatic sync')} {commitState.gitDraftAutoSync?.lastCheckAt?`${t('Last checked')} ${new Date(commitState.gitDraftAutoSync.lastCheckAt).toLocaleString()}`:t('Waiting for the next check')}</p>}
+        {commitState.gitDraftAutoSync?.lastError?<p role="alert">{t('GitHub automatic sync is paused. Check the GitHub connection and branch.')} {commitState.gitDraftAutoSync.lastError}</p>:<p role="status">{t('Automatic sync')} {commitState.gitDraftAutoSync?.lastCheckAt?`${t('Last checked')} ${formatHistoryDate(commitState.gitDraftAutoSync.lastCheckAt,t)}`:t('Waiting for the next check')}</p>}
         <div className="hx-actions">
           <button type="button" className="pill-btn" disabled={busy||!html.trim()||html.length>MAX_PREVIEW_SOURCE||remoteConflict} onClick={()=>void run(async()=>{await api.customCommit(app.id,{action:'sync_git_draft',version:app.version,html});await reload();setCommitState(await api.customCommitState(app.id));setPublishGate(await api.customPublishState(app.id))})}>{t('Sync current code to GitHub draft')}</button>
           <button type="button" className="pill-btn quiet" disabled={busy||remoteConflict} onClick={()=>{if(changed&&!window.confirm(t('Replace saved code with the latest GitHub draft? Your edits are kept, and the published app will not change.')))return;void run(async()=>{await api.customCommit(app.id,{action:'refresh_git_draft',version:app.version});await reload();setCommitState(await api.customCommitState(app.id));setPublishGate(await api.customPublishState(app.id))})}}>{t('Import latest GitHub draft')}</button>
