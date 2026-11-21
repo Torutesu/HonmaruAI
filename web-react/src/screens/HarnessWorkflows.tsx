@@ -720,13 +720,18 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
           const status=event.target.value
           setRunStatus(status)
           void act('run-history-filter',async()=>{
-            const page=await api.workflowRunsPage(w.id,{limit:50,...(status?{status}:{})})
-            setRunPage(page)
-            setOpen(current=>current?.workflow.id===w.id?{...current,runs:page.runs}:current)
+            try {
+              const page=await api.workflowRunsPage(w.id,{limit:50,...(status?{status}:{})})
+              setRunPage(page)
+              setOpen(current=>current?.workflow.id===w.id?{...current,runs:page.runs}:current)
+            } catch (error) {
+              setRunStatus(runStatus)
+              throw error
+            }
           })
         }}>
           <option value="">{t('All runs')}</option>
-          {['running','waiting','done','failed','declined','cancelled','interrupted','no_agents','unknown'].map(status=><option key={status} value={status}>{t(status)}</option>)}
+          {['running','waiting','done','ok','failed','declined','cancelled','interrupted','no_agents','unknown'].map(status=><option key={status} value={status}>{t(status)}</option>)}
         </select></label></div>}
         {open.runs.length===0&&runPage&&<p className="hx-run-empty">{runStatus?t('No runs match this status.'):t('It has not run yet.')}</p>}
         {runDays.map(([key,group])=><section className="hx-run-day" key={key}><h4>{runDayLabel(group.date,getLocale(),t)}</h4><div className="rows hx-run-day-rows">

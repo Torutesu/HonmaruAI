@@ -167,6 +167,15 @@ test('workflow run failure filter reports when no run has failed',async()=>{
  expect(JSON.stringify(tree.toJSON())).toContain('No runs match this status.')
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string')).toHaveLength(0)
 });
+test('a failed run filter request restores the previous filter and history',async()=>{
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'still-visible',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]}]})
+ await open()
+ state.api.workflowRunsPage=vi.fn().mockRejectedValue(new Error('history unavailable'))
+ await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:'failed'}}))
+ expect(tree.root.findByProps({'aria-label':'Filter runs'}).props.value).toBe('')
+ expect(tree.root.findAll(node=>typeof node.props['data-run']==='string').map(run=>run.props['data-run'])).toEqual(['still-visible'])
+ expect(JSON.stringify(tree.toJSON())).toContain('history unavailable')
+});
 test('workflow run history loads older pages and links waiting runs to their approval card',async()=>{
  const first={id:'waiting-run',status:'waiting',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[],cardId:'approval-card'}
  state.api.workflowRunsPage=vi.fn().mockResolvedValueOnce({runs:[first],hasMore:true,nextCursor:'cursor-next'}).mockResolvedValueOnce({runs:[{id:'old-run',status:'done',trigger:'manual',startedAt:'2026-10-22T12:00:00Z',log:[]}],hasMore:false,nextCursor:null})
