@@ -159,7 +159,7 @@ test('workflow run history groups dates and filters failed runs on the server',a
  await act(async()=>tree.root.findByProps({'aria-label':'Filter runs'}).props.onChange({target:{value:''}}))
  expect(tree.root.findAll(node=>typeof node.props['data-run']==='string')).toHaveLength(3)
 });
-test('workflow run failure filter reports when no run has failed',async()=>{
+test('workflow run status filter reports when there are no matching runs',async()=>{
  state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'done-only',status:'done',trigger:'manual',startedAt:'2026-10-24T12:00:00Z',log:[]}]})
  await open()
  state.api.workflowRunsPage=vi.fn().mockResolvedValue({runs:[],hasMore:false,nextCursor:null})
