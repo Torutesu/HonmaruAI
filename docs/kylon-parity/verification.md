@@ -4742,6 +4742,12 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Added Japanese, Spanish, French, and German strings and coverage for a visible template, omission state, and the absence of runtime values.
 - Local Web suite: **2,115/2,115** passed across 277 files; production build and `tsc --noEmit` passed; `git diff --check` passed. PR #1138 exact-head CI, main CI and Web Pages/domain Verify succeeded. Authenticated Kylon UI comparison remains pending.
 
+### 2026-11-21 — KY-044 table contracts and KY-061 embedded step observability (candidate)
+
+- Company App > Database now previews the OpenAPI contract for each entity, publishes immutable versions only for managers, lists and loads pinned SHA-256 versions for viewers, downloads the selected JSON, and offers a copyable SDK-generation command that pins the displayed contract hash. Publication sends the observed `updatedAt` value to the existing compare-and-set route. No arbitrary API registration, packaged SDK distribution, or old-schema runtime writes were added; Simple mode is unchanged.
+- Embedded App Automation history now displays each step's sanitized authorization outcome, AI token usage/estimated cost, finite duration, and operation ID. Actor IDs and runtime record/message/connection values remain hidden; optional or malformed duration values do not render.
+- Focused AppTableContracts/API and AutomationRuns tests passed; full Web suite: **2,160/2,160** across 281 files. TypeScript and Vite production build passed; `git diff --check` passed. Existing Vite chunk/dynamic-import warnings remain. Exact-head CI, merge/deployment, and authenticated Kylon side-by-side acceptance remain pending.
+
 
 ### 2026-11-21 — KY-059 explicitly bound App Connection writes (candidate)
 

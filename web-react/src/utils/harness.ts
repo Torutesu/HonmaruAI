@@ -24,7 +24,7 @@ export class HarnessApiError extends Error {
 
 export type ColumnType = 'text' | 'number' | 'date' | 'datetime' | 'select' | 'checkbox' | 'url' | 'person' | 'email' | 'relation'
 export interface Column { id: string; name: string; type: ColumnType; options?: string[]; targetEntity?: string; multiple?: boolean }
-export interface Table { id: string; name: string; columns: Column[] }
+export interface Table { id: string; name: string; columns: Column[]; updatedAt?: string }
 export interface Row { createdAt?: string; id: string; values: Record<string, unknown>; updatedAt: string }
 export interface Metric { label: string; op: string; column?: string; value: number | null }
 export interface View {
@@ -61,6 +61,8 @@ export interface MergeReview { forkId: string; revision: number; schemaVersion?:
 export interface MigrationPreview { previewChecksum: string; canApply: boolean; changes: Array<{entity:string;tableName:string;operations:string[];schemaChanges:Array<Record<string,unknown>>;rowsScanned:number;rowsChanged:number;examples:Array<{id:string;before:Record<string,unknown>;after:Record<string,unknown>;relationMatches?:Array<{column:string;targetEntity:string;matches:Array<{label:string;recordId:string;matchBy:string}>}>}>;blockers:unknown[]}>; blockers:Array<{entity:string;id:string;column?:string;reason:string;resolution?:{entity:string;columnId:string;label:string;candidates:string[]}}> ; blockerCount:number }
 export interface AppMigration { id:string;version:number;checksum:string;plan:unknown;inverseOperations?:Array<Record<string,unknown>>|null;rollbackUnavailableReason?:'snapshot_limit'|'multiple_conversions'|'legacy_format'|null;createdAt:string;integrityValid:boolean }
 export interface AppDatabase { version: number; entities: AppEntity[]; migrations: AppMigration[]; fork: AppFork | null }
+export interface TableContractVersion { contractVersion:string; createdBy:string|null; createdAt:string }
+export interface TableContractSnapshot extends TableContractVersion { contract:Record<string,unknown> }
 export interface Template { id: string; name: string; icon: string; description: string }
 export interface TemplateShare { id: string; appVersion: number; createdAt: string; expiresAt: string; revokedAt: string | null }
 export interface SharedTemplate { format: 1; app: { name: string; description: string; icon: string }; version: number; tableName: string; columns: Array<{ name: string; type: Column['type']; options?: string[] }>; definition: { views: View[] } }
@@ -221,6 +223,10 @@ export function harnessApi(httpBase: string, orgId: string, sessionToken: string
     saveAppAutomations: (id: string, version: number, revision: number, automations: AutomationBundle) => call<{saved:boolean;revision:number}>('PUT', `/apps/${id}/automations`, {version,revision,automations}),
     releaseAppAutomations: (id: string, body: Record<string,unknown>) => call<{saved:boolean;revision:number;version:number;replay?:boolean;webhookSecrets?:{key:string;workflowId:string;secret:string}[]}>('POST', `/apps/${id}/automations`, body),
     appDatabase: (id: string) => call<AppDatabase>('GET', `/apps/${id}/database`),
+    tableContract: (tableId:string) => call<Record<string,unknown>>('GET', `/tables/${encodeURIComponent(tableId)}/contract`),
+    tableContracts: (tableId:string) => call<{versions:TableContractVersion[]}>('GET', `/tables/${encodeURIComponent(tableId)}/contracts`),
+    tableContractVersion: (tableId:string,version:string) => call<TableContractSnapshot>('GET', `/tables/${encodeURIComponent(tableId)}/contracts/${encodeURIComponent(version)}`),
+    publishTableContract: (tableId:string,expectedUpdatedAt:string) => call<{contractVersion:string;created:boolean}>('POST', `/tables/${encodeURIComponent(tableId)}/contracts`, {expectedUpdatedAt}),
     customPreviewDatabase: (id: string, version: number) => call<AppDatabase>('GET', `/apps/${id}/database`, undefined, {customPreview:'1',version:String(version)}),
     customPreviewFork: (id: string, version: number, forkId?: string, revision?: number) => call<{fork:AppFork|null}>('POST', `/apps/${id}/database`, {action:forkId?'custom_preview_refresh':'custom_preview_fork',version,forkId,revision}),
     customPreviewWrite: (id: string, version: number, body: Record<string,unknown>) => call<{result?:unknown;revision?:number}>('POST', `/apps/${id}/database`, {action:'custom_preview_write',version,...body}),

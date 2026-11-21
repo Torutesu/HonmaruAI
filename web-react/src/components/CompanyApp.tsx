@@ -1,4 +1,5 @@
 import {AppAutomations} from './AppAutomations'
+import {AppTableContracts} from './AppTableContracts'
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import type { App, AppAction, AppActionRun, AppConnection, AppRemoteMcpTool, AppDatabase, AppMigration, AppHosting, MergeReview, MigrationPreview, Gateway, GatewayJob, HarnessApi } from '../utils/harness'
@@ -159,6 +160,7 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
           <ul>{e.table.columns.map(column=><li key={column.id}><span className="hx-db-field-icon" aria-hidden="true">{column.type==='relation'?'↔':'◦'}</span><span className="hx-db-field-name">{column.name}</span><span className="hx-db-field-type">{column.type==='relation'?'Relation':column.type}{column.type==='relation'&&column.multiple?' · '+t('Multiple'):''}</span>{column.type==='relation'&&<button type="button" className="hx-db-relation-link" onClick={()=>{setRelationSource(e.key);setRelationTarget(column.targetEntity||'');document.getElementById(`hx-db-entity-${column.targetEntity}`)?.scrollIntoView?.({behavior:'smooth',block:'nearest'})}} aria-label={t('Link to table for {column}',{column:column.name})}>{db.entities.find(target=>target.key===column.targetEntity)?.table.name||column.targetEntity} <span aria-hidden="true">↗</span></button>}</li>)}</ul>
         </article>)}</div>
       </section>
+      <AppTableContracts api={api} entities={db.entities} canPublish={canManage}/>
       <section aria-label={t('Database change history')}>
         <h3>{t('Database change history')}</h3>
         {!db.migrations.length?<p>{t('No changes have been applied yet.')}</p>:<ol className="hx-db-migration-history">{db.migrations.map(migration=><li key={`${migration.id}:${migration.version}`}>

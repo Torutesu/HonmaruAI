@@ -108,6 +108,27 @@ test('run history shows resolved authorization actor names but never raw actor I
  expect(text).not.toContain('prompt')
  act(()=>tree.unmount())
 })
+test('embedded App automation history shows sanitized step authorization, AI usage, duration, and operation ID',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-step-observability',startedAt:'2026-10-24T00:00:00Z',status:'failed',usage:{calls:1,inputTokens:20,outputTokens:5,unknownCalls:0,unpricedCalls:0,estimatedMicros:12500,estimatedUsd:0.0000125,coverage:'priced-token-estimate',steps:[{stepNumber:2,calls:1,inputTokens:20,outputTokens:5,unknownCalls:0,unpricedCalls:0,estimatedMicros:12500}]},log:[{step:2,type:'agent',status:'failed',at:'2026-10-24T00:00:02Z',durationMs:1250,operationId:'workflow:run-step-observability:step:2',inputPreview:{mode:'template',input:{prompt:'Review {{input.release}}'}},authorization:[{actorName:'Mika',actorId:'private-actor-id',resourceType:'agent',resourceId:'agent-reviewer',outcome:'denied',checkedAt:'2026-10-24T00:00:02Z'}]}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('Access checks'))
+ expect(text).toContain(t('Denied'))
+ expect(text).toContain('Mika')
+ expect(text).toContain('agent-reviewer')
+ expect(text).not.toContain('private-actor-id')
+ expect(text).toContain(t('Step AI usage'))
+ expect(text).toContain(t('Input tokens'))
+ expect(text).toContain('20')
+ expect(text).toContain(t('Step duration'))
+ expect(text).toContain('1.25 s')
+ expect(text).toContain(t('Operation ID'))
+ expect(text).toContain('workflow:run-step-observability:step:2')
+ expect(text).toContain('{{input.release}}')
+ expect(text).not.toContain('runtime-secret-value')
+ act(()=>tree.unmount())
+})
 test('failed refresh removes stale results and offers a retry',async()=>{
  const workflow=vi.fn().mockResolvedValueOnce({runs:[{id:'old',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[]}]}).mockRejectedValueOnce(new Error('Access changed')).mockResolvedValue({runs:[]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})

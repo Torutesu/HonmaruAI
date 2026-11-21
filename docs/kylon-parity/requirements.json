@@ -564,12 +564,12 @@
       "status": "partial",
       "priority": "P1",
       "source": "https://docs.kylon.io/cli/workspace/app",
-      "code": "worker/src/harness/tableContract.js; worker/src/harness/tableContracts.js; worker/src/harness/routes.js; packages/cli/src/sdk.js",
+      "code": "worker/src/harness/tableContract.js; worker/src/harness/tableContracts.js; worker/src/harness/routes.js; packages/cli/src/sdk.js; web-react/src/components/AppTableContracts.tsx",
       "acceptance": "OpenAPI 3.1 strict CRUD契約をschema updatedAt CASで不変版保存し、SHA-256の検証済みIDから列挙・取得。CLIで版指定SDKを生成し、ソースにversionを固定。ランタイム書込みは現在のschemaへ再検証する。任意API登録と配布SDKは未実装",
       "evidence": {
         "reviewedAt": "2026-11-18",
-        "implementedScope": "Added explicit immutable snapshots of the existing table OpenAPI contract, content-addressed by SHA-256. Publishing is idempotent for identical bytes, fenced by the table schema updatedAt and limited to 100 snapshots per table. Authorized viewers can list and retrieve a pinned version; integrity is checked on read, and creator display names are limited to current workspace members. The CLI can generate a nullable TypeScript SDK from a chosen snapshot and records CONTRACT_VERSION in the output. Existing current-schema CRUD and Simple mode are unchanged.",
-        "verification": "Local Worker harness-apps plus migration suites passed 206/206, including publish/replay, stale schema CAS, immutable old snapshot after rename, cross-workspace denial, malformed/missing version, creator-name privacy and tamper detection. CLI suite passed 78/78, including pinned snapshot generation plus publish/list commands with signed-in session credentials. No new paid service.",
+        "implementedScope": "Added explicit immutable snapshots of the existing table OpenAPI contract, content-addressed by SHA-256. Publishing is idempotent for identical bytes, fenced by the table schema updatedAt and limited to 100 snapshots per table. Authorized viewers can list and retrieve a pinned version; integrity is checked on read, and creator display names are limited to current workspace members. The CLI can generate a nullable TypeScript SDK from a chosen snapshot and records CONTRACT_VERSION in the output. Company App > Database now previews and downloads OpenAPI JSON, publishes only for managers, lists and retrieves immutable hashes for viewers, and offers a copyable SDK command pinned to the selected hash. Existing current-schema CRUD and Simple mode are unchanged.",
+        "verification": "Local Worker harness-apps plus migration suites passed 206/206, including publish/replay, stale schema CAS, immutable old snapshot after rename, cross-workspace denial, malformed/missing version, creator-name privacy and tamper detection. CLI suite passed 78/78, including pinned snapshot generation plus publish/list commands with signed-in session credentials. AppTableContracts/API and AutomationRuns focused tests passed; the complete Web suite passed 2,160/2,160, and TypeScript/Vite production build and git diff --check passed. No new paid service.",
         "remaining": "This does not register arbitrary App APIs, package/distribute the SDK, or enforce old contract hashes on runtime requests; CRUD always checks the current schema and permissions. Authenticated production use and Kylon side-by-side comparison remain unverified."
       }
     },
@@ -835,8 +835,8 @@
       "acceptance": "全ステップの入力出力・エラー・コスト・権限を追跡。Workflow詳細とApp内Automation詳細の両方で過去7日間の実行数・失敗数・典型時間・推定AI使用量を表示する。失敗runから作成元スレッドを開き、再実行せず復旧を相談できる",
       "evidence": {
         "embeddedAppSummary": {
-          "scope": "AppAutomationではGET /workflows/:idがすでに返す過去168時間のsummaryを履歴パネルに表示し、中央Harness Workflow詳細と同じ共有UIを使う。token usage/costは推定値であり請求額ではない旨、未価格/使用量不明件数も表示する。",
-          "localQA": "AutomationRuns, HarnessWorkflows and AppAutomations suites passed; full Web tests and production build passed. See docs/kylon-parity/verification.md.",
+          "scope": "AppAutomationの履歴はGET /workflows/:idが返す過去168時間のsummaryを表示する。中央Workflow詳細とは別の埋め込み履歴UIで、各ステップのサニタイズ済み権限結果、対応するAIトークン/推定コスト、有限の所要時間、operation IDも表示する。実行時のレコード値・利用者IDは表示しない。",
+          "localQA": "AutomationRuns regression and embedded authorization, step-usage, duration, operation-ID, and privacy tests passed; full Web suite passed 2,160/2,160, TypeScript and production build passed. See docs/kylon-parity/verification.md.",
           "remaining": "Run-level input context is still intentionally omitted, and the structured effect receipt does not yet include an independently reconciled provider-side result. Authenticated Kylon visual comparison and acceptance remain pending."
         },
         "latestIncrement": {
