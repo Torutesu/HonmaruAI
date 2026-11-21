@@ -371,9 +371,9 @@ test('a source-Agent connection grant can be enabled and revoked from the App co
  await act(async()=>button('External connections').props.onClick())
  const selected=()=>tree.root.findAllByType('button').find(item=>item.children.join('').startsWith('repo_api'))!
  await act(async()=>selected().props.onClick())
- await act(async()=>button('このAppに接続を共有').props.onClick())
+ await act(async()=>button('Share this connection with the App').props.onClick())
  expect(api.connectionChange).toHaveBeenLastCalledWith('app',{action:'grant',name:'repo_api'})
- await act(async()=>button('App共有を停止').props.onClick())
+ await act(async()=>button('Stop sharing').props.onClick())
  expect(api.connectionChange).toHaveBeenLastCalledWith('app',{action:'revoke',name:'repo_api'})
  act(()=>tree.unmount())
 })
@@ -392,7 +392,7 @@ test('Google OAuth connection starts from the saved App connection without expos
   const authSelect=tree.root.findAllByType('select').find(item=>item.findAllByType('option').some(option=>option.props.value==='oauth'))!
   await act(async()=>authSelect.props.onChange({target:{value:'oauth'}}))
   expect(tree.root.findAllByType('input').some(input=>input.props.type==='password'&&input.props.value)).toBe(false)
-  await act(async()=>button('Googleアカウントを接続').props.onClick())
+  await act(async()=>button('Connect Google account').props.onClick())
   expect(api.connectionChange).toHaveBeenCalledWith('app',{action:'oauth_start',name:'google_api'})
   expect(open).toHaveBeenCalledWith('about:blank','_blank')
   expect(popup.location.replace).toHaveBeenCalledWith('https://accounts.google.com/o/oauth2/v2/auth?state=high-entropy')
