@@ -49,7 +49,7 @@ describe('Api: devices', () => {
 })
 
 describe('pushTarget', () => {
-  const target = { orgId: 'team:a', channel: 'b:cafe', messageId: 'm1' }
+  const target = { kind: 'message', orgId: 'team:a', channel: 'b:cafe', messageId: 'm1' }
 
   test('reads an iPhone notification: the keys beside aps', () => {
     expect(pushTarget({ aps: { alert: { title: 'Toru' }, 'thread-id': 'team:a|b:cafe' }, kind: 'message', orgId: 'team:a', channel: 'b:cafe', messageId: 'm1', parentId: null }))
@@ -75,7 +75,7 @@ describe('pushTarget', () => {
   })
 
   test('the first source that names a conversation wins', () => {
-    expect(pushTarget({}, null, { orgId: 'team:a', channel: 'dm:mika|toru' })).toEqual({ orgId: 'team:a', channel: 'dm:mika|toru', messageId: null })
+    expect(pushTarget({}, null, { orgId: 'team:a', channel: 'dm:mika|toru' })).toEqual({ kind: 'message', orgId: 'team:a', channel: 'dm:mika|toru', messageId: null })
   })
 
   test('anything else is not a conversation', () => {
