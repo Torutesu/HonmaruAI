@@ -126,6 +126,13 @@ describe('a push, shown', () => {
     expect(w.shown[0].options.data).toMatchObject({ messageId: 'm2' })
   })
 
+  it('never rolls one App activity stream back to an older held push', async () => {
+    const w = worker({ existing: [{ title: 'Tasks', body: 'Latest mention', timestamp: 2000, data: { kind: 'app_activity', orgId: 'team:one', appId: 'app_tasks', messageId: '43', at: '2026-01-01T00:00:02.000Z' } }] })
+    await w.push({ title: 'Tasks', body: 'Older mention', kind: 'app_activity', orgId: 'team:one', appId: 'app_tasks', messageId: '42', at: '2026-01-01T00:00:01.000Z' })
+    expect(w.shown).toHaveLength(1)
+    expect(w.shown[0]).toMatchObject({ title: 'Tasks', options: { body: 'Latest mention', renotify: false, data: { messageId: '43', appId: 'app_tasks' } } })
+  })
+
   it('still rings for a message newer than the one on screen', async () => {
     const w = worker({ existing: [{ title: 'Bob', body: 'first', data: { messageId: 'm1', kind: 'message', at: '2026-01-01T00:00:01.000Z' } }] })
     await w.push({ title: 'Bob', body: 'second', kind: 'message', tag: 'org1|dm:bob', orgId: 'org1', messageId: 'm2', at: '2026-01-01T00:00:02.000Z' })
@@ -144,6 +151,26 @@ describe('a push, shown', () => {
     expect(again.shown[0].options).toMatchObject({ tag: 'c1', renotify: false })
     await again.push({ title: 'Plain' })
     expect(again.shown[1].options.tag).toBe('honmaru')
+  })
+
+  it('shows app activity with its app and record metadata without changing message/card payloads', async () => {
+    const w = worker()
+    await w.push({ kind: 'app_activity', title: 'Tasks', body: 'Aiko mentioned you', orgId: 'team:one', appId: 'app_tasks', messageId: '42', tableId: 'table_tasks', rowId: 'row_42' })
+    expect(w.shown).toHaveLength(1)
+    expect(w.shown[0]).toMatchObject({ title: 'Tasks', options: {
+      body: 'Aiko mentioned you', tag: 'team:one|app:app_tasks',
+      data: { kind: 'app_activity', orgId: 'team:one', appId: 'app_tasks', appName: null, messageId: '42', tableId: 'table_tasks', rowId: 'row_42' },
+    } })
+  })
+
+  it('quietly replaces the same App activity message only within that App', async () => {
+    const existing = [{ data: { kind: 'app_activity', appId: 'app_tasks', messageId: '42' } }]
+    const same = worker({ existing })
+    await same.push({ kind: 'app_activity', appId: 'app_tasks', messageId: '42', orgId: 'team:one' })
+    expect(same.shown[0].options.renotify).toBe(false)
+    const other = worker({ existing })
+    await other.push({ kind: 'app_activity', appId: 'app_notes', messageId: '42', orgId: 'team:one' })
+    expect(other.shown[0].options.renotify).toBe(true)
   })
 })
 
@@ -184,6 +211,17 @@ describe('a notification, clicked', () => {
       await w.click({ cardId: 'c1', orgId: 'org1' })
       expect(w.posted[0].message).toEqual({ type: 'open-card', cardId: 'c1', orgId: 'org1', hash: '#/feed/c1/org1' })
     })
+
+    it('routes app activity to its record conversation in the owning workspace', async () => {
+      await w.click({ kind: 'app_activity', appId: 'app_tasks', orgId: 'team:one', messageId: '42', tableId: 'table_tasks', rowId: 'row_42' })
+      expect(w.posted[0].message).toEqual({ type: 'open-app-activity', appId: 'app_tasks', appName: null, orgId: 'team:one', tableId: 'table_tasks', rowId: 'row_42', hash: '#/apps/app_tasks/team%3Aone?chat=1&table=table_tasks&row=row_42' })
+    })
+  })
+
+  it('opens an app-level conversation without inventing a record scope', async () => {
+    const w = worker()
+    await w.click({ kind: 'app_activity', appId: 'app_tasks', orgId: 'team:one', messageId: '42' })
+    expect(w.opened).toEqual(['https://app.example/#/apps/app_tasks/team%3Aone'])
   })
 })
 

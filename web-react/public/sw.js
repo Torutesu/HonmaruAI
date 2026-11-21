@@ -130,10 +130,13 @@ const BADGE = '/badge-96.png'
 /// What a push says, turned into what the notification shows. Pure, so the
 /// shape is tested rather than hoped for (sw.test.ts loads this file).
 function notificationFor(data) {
-  const tag = data.tag || data.cardId || 'honmaru'
+  const appTag = data.kind === 'app_activity' && data.appId && data.orgId
+    ? `${data.orgId}|app:${data.appId}`
+    : null
+  const tag = data.tag || data.cardId || appTag || 'honmaru'
   const at = Date.parse(data.at || '')
   return {
-    title: data.title || 'Honmaru AI',
+    title: data.title || (data.kind === 'app_activity' && data.appName) || 'Honmaru AI',
     options: {
       body: data.body || '',
       tag,
@@ -155,6 +158,10 @@ function notificationFor(data) {
         channel: data.channel || null,
         url: data.url || null,
         kind: data.kind || null,
+        appId: data.kind === 'app_activity' ? data.appId || null : null,
+        appName: data.kind === 'app_activity' ? data.appName || null : null,
+        tableId: data.kind === 'app_activity' ? data.tableId || null : null,
+        rowId: data.kind === 'app_activity' ? data.rowId || null : null,
         // The server's time for the message (created_at), the same one the
         // open tab puts on its own notification for it.
         at: data.at || null,
@@ -172,6 +179,7 @@ function notificationFor(data) {
 function alreadyShown(existing, data) {
   return existing.some((n) => {
     const d = n.data || {}
+    if (data.kind === 'app_activity') return Boolean(data.messageId && d.kind === 'app_activity' && d.appId === data.appId && d.messageId === data.messageId)
     return (data.messageId && d.messageId === data.messageId) || (data.cardId && d.cardId === data.cardId && data.kind === d.kind)
   })
 }
@@ -183,7 +191,10 @@ function newerShown(existing, data) {
   if (!Number.isFinite(at)) return null
   return existing.find((n) => {
     const d = n.data || {}
-    return d.kind === 'message' && Date.parse(d.at || '') > at
+    const sameStream = data.kind === 'app_activity'
+      ? d.kind === 'app_activity' && d.orgId === data.orgId && d.appId === data.appId
+      : d.kind === 'message'
+    return sameStream && Date.parse(d.at || '') > at
   }) || null
 }
 
@@ -220,6 +231,17 @@ self.addEventListener('push', (event) => {
 /// the message, in its own workspace (`#/feed/<id>/<orgId>` and
 /// `#/m/<id>/<orgId>` switch to it).
 function hashFor(data) {
+  if (data.kind === 'app_activity') {
+    if (!/^[\w-]{1,80}$/.test(data.appId || '') || !/^[\w:.@|+/-]{1,160}$/.test(data.orgId || '')) return '#/apps'
+    const tableId = typeof data.tableId === 'string' && /^[\w-]{1,100}$/.test(data.tableId) ? data.tableId : ''
+    const rowId = typeof data.rowId === 'string' && /^[\w-]{1,100}$/.test(data.rowId) ? data.rowId : ''
+    const base = `#/apps/${encodeURIComponent(data.appId)}/${encodeURIComponent(data.orgId)}`
+    if ((data.tableId || data.rowId) && (!tableId || !rowId)) return '#/apps'
+    if (!tableId || !rowId) return base
+    const params = new URLSearchParams('chat=1')
+    params.set('table', tableId); params.set('row', rowId)
+    return `${base}?${params}`
+  }
   if (data.cardId) return '#/feed/' + encodeURIComponent(data.cardId) + (data.orgId ? '/' + encodeURIComponent(data.orgId) : '')
   if (data.messageId) return '#/m/' + encodeURIComponent(data.messageId) + (data.orgId ? '/' + encodeURIComponent(data.orgId) : '')
   return ''
@@ -252,7 +274,9 @@ self.addEventListener('notificationclick', (event) => {
       }
       // The open app goes there itself (Dashboard listens), rather than a
       // second tab opening beside it.
-      client.postMessage(data.messageId && !data.cardId
+      client.postMessage(data.kind === 'app_activity'
+        ? { type: 'open-app-activity', appId: data.appId || null, appName: data.appName || null, tableId: data.tableId || null, rowId: data.rowId || null, orgId: data.orgId || null, hash }
+        : data.messageId && !data.cardId
         ? { type: 'open-message', messageId: data.messageId, orgId: data.orgId || null, hash }
         : { type: 'open-card', cardId: data.cardId || null, orgId: data.orgId || null, hash })
       return 'focus' in client ? client.focus() : undefined

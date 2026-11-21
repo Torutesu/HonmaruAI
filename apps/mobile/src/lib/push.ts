@@ -14,7 +14,7 @@ import * as Device from 'expo-device'
 import * as Notifications from 'expo-notifications'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
-import { pushTarget, type Api, type PushTarget } from '@honmaru/core'
+import { pushTarget, type AnyPushTarget, type Api } from '@honmaru/core'
 import * as Application from 'expo-application'
 
 const PUSH_TOKEN_KEY = 'honmaru.pushToken'
@@ -101,7 +101,7 @@ export async function unregisterPush(api: Api): Promise<void> {
 
 /// Where a tapped notification points: the parsed data on either platform,
 /// and on Android the raw FCM data as well.
-export function targetOf(response: Notifications.NotificationResponse | null | undefined): PushTarget | null {
+export function targetOf(response: Notifications.NotificationResponse | null | undefined): AnyPushTarget | null {
   const request = response?.notification?.request
   if (!request) return null
   const trigger = request.trigger as { remoteMessage?: { data?: Record<string, string> } } | null
@@ -110,7 +110,7 @@ export function targetOf(response: Notifications.NotificationResponse | null | u
 
 /// The tap that opened the app, and every tap while it is open, each handled
 /// once. `open` is called only once the session is ready for it.
-export function onNotificationTap(open: (target: PushTarget) => void): () => void {
+export function onNotificationTap(open: (target: AnyPushTarget) => void): () => void {
   const handle = (response: Notifications.NotificationResponse | null) => {
     const target = targetOf(response)
     if (!target) return

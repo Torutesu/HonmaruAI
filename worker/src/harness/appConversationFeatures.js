@@ -15,6 +15,7 @@ import { withRoomGuidelinesRequest } from './guidelines.js';
 import { appReplySnapshot, saveFencedAppReply, completeFencedAppReply, mayAnnounceFencedAppReply } from './appReplyFence.js';
 import { getTable } from './tables.js';
 import { mayWriteTableRecords } from './resourceAccess.js';
+import { queueAppNotificationPush } from '../pushes.js';
 
 const scopeOf = input => ({ tableId: input.tableId || '', rowId: input.rowId || '' });
 const error = (message, status=400) => ({error:message,status});
@@ -65,7 +66,7 @@ export async function notifyAppMentions(db,orgId,user,appId,input,messageId,env=
   if(recipient.userId===String(user.github_id)||String(recipient.role||'guest').trim().toLowerCase()==='guest')continue;
   if((await appConversation(db,orgId,recipient.userId,appId,scopeOf(input))).error)continue;
   const saved=await db.prepare('INSERT OR IGNORE INTO hx_app_notifications(org_id,app_id,message_id,user_id,kind) VALUES (?,?,?,?,?)').bind(orgId,appId,messageId,recipient.userId,'mention').run();
-  if(env&&saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);
+  if(env){try{await queueAppNotificationPush(env,{orgId,appId,messageId,userId:recipient.userId,login:recipient.login})}catch(error){console.error('App mention push queue failed',error?.message||error)}if(saved.meta?.changes)await announceTo(env,orgId,[{to:recipient.login,event:custom('app_activity_changed',{appId})}]);}
  }
 }
 export async function appNotifications(db,orgId,userId,appId,input,write=false,proof){
@@ -146,6 +147,7 @@ export async function replyToApp(env,orgId,user,appId,input,messageId,{makeCompl
    }
   }
   if(!await mayAnnounceFencedAppReply(db,orgId,appId,user.github_id,scope,source,snapshot,messageId,requestId,answer,requestProof))return;
+  try{await queueAppNotificationPush(env,{orgId,appId,messageId:reply.sequence,userId:user.github_id,login:user.login})}catch(error){console.error('App AI reply push queue failed',error?.message||error)}
   // This signal only asks the client to reload its authorized activity.
   // Keep app identity out of the relay if access changes during delivery.
   await announceTo(env,orgId,[{to:user.login,event:custom('app_activity_changed',{})}]);

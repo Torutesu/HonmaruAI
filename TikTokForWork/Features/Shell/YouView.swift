@@ -141,6 +141,9 @@ struct YouView: View {
                 }.padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 24)
             }
             .background(Theme.Colors.surface)
+            .navigationDestination(item: $push.pendingApp) { target in
+                HarnessHubView(notificationTarget: target).environmentObject(appState)
+            }
             .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .task { await appState.refreshWorkspaceMembers() }
             .sheet(isPresented: $showEmail) { emailSheet }

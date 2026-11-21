@@ -613,6 +613,34 @@ final class ChatNotificationTargetTests: XCTestCase {
     }
 }
 
+/// App activity notifications retain record and message context for the
+/// native Harness destination, without confusing them with channel messages.
+final class AppActivityNotificationTargetTests: XCTestCase {
+    func testAnAppActivityNamesItsWorkspaceAppAndRecord() {
+        let target = PushService.AppTarget([
+            "kind": "app_activity", "orgId": "org1", "appId": "app1",
+            "messageId": 42, "tableId": "table1", "rowId": "row1",
+        ])
+        XCTAssertEqual(target?.orgId, "org1")
+        XCTAssertEqual(target?.appId, "app1")
+        XCTAssertEqual(target?.messageId, "42")
+        XCTAssertEqual(target?.tableId, "table1")
+        XCTAssertEqual(target?.rowId, "row1")
+    }
+
+    func testPartialRecordScopeFallsBackToTheAppAndOtherPushKindsDoNotRouteHere() {
+        let partial = PushService.AppTarget([
+            "kind": "app_activity", "orgId": "org1", "appId": "app1",
+            "messageId": "m1", "tableId": "table1",
+        ])
+        XCTAssertNotNil(partial)
+        XCTAssertNil(partial?.tableId)
+        XCTAssertNil(partial?.rowId)
+        XCTAssertNil(PushService.AppTarget(["kind": "message", "orgId": "org1", "channel": "c:general", "messageId": "m1"]))
+        XCTAssertNil(PushService.AppTarget(["kind": "app_activity", "orgId": "org1", "appId": "", "messageId": "m1"]))
+    }
+}
+
 /// Messages that did not reach the server: kept for the account, workspace
 /// and conversation they were written in, and across a relaunch.
 final class ChatOutboxTests: XCTestCase {
