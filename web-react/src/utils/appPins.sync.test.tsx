@@ -28,3 +28,26 @@ test('pins refresh on focus and timer, and never display the previous authentica
   expect(result!.pins).toBe(empty)
   act(()=>tree!.unmount())
 })
+
+test('a workspace switch hides stale app pins during the first render before the refresh effect',async()=>{
+ const events=new EventTarget(),documentEvents=new EventTarget()
+ vi.stubGlobal('window',Object.assign(events,{setInterval,clearInterval}))
+ vi.stubGlobal('document',Object.assign(documentEvents,{visibilityState:'visible'}))
+ let result:ReturnType<typeof useAppPins>
+ let resolveNext!: (value:{pins:string[]})=>void
+ const api={appPins:vi.fn<()=>Promise<{pins:string[]}>>().mockResolvedValue({pins:['private-old']}),setAppPin:vi.fn().mockResolvedValue({pins:[]})}
+ let firstOrgTwoRender:string[]|undefined
+ function Probe({orgId}:{orgId:string}){result=useAppPins(orgId,api);if(orgId==='org-two'&&firstOrgTwoRender===undefined)firstOrgTwoRender=[...result.pins];return <span>{result.pins.join(',')}</span>}
+ let tree:ReturnType<typeof create>
+ await act(async()=>{tree=create(<Probe orgId="org-one"/>)})
+ expect(result!.pins).toEqual(['private-old'])
+ api.appPins.mockImplementation(()=>new Promise(resolve=>{resolveNext=resolve}))
+ await act(async()=>{tree!.update(<Probe orgId="org-two"/>)})
+ expect(firstOrgTwoRender).toEqual([])
+ expect(result!.pins).toEqual([])
+ expect(result!.loaded).toBe(false)
+ await expect(result!.toggle('private-old')).rejects.toThrow('固定状態を同期中')
+ await act(async()=>{resolveNext({pins:['private-new']})})
+ expect(result!.pins).toEqual(['private-new'])
+ act(()=>tree!.unmount())
+})

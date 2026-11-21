@@ -11,14 +11,15 @@ export function useAppPins(orgId: string, api: Pick<import('./harness').HarnessA
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [loadedApi,setLoadedApi] = useState<typeof api | null>(null)
+  const [loadedOrg,setLoadedOrg] = useState<string | null>(null)
   const generation = useRef(0)
   useEffect(() => {
     let live=true, sequence=0
-    setPins([]); setPending(false); setLoaded(false); setError(''); generation.current++
+    setPins([]); setPending(false); setLoaded(false); setLoadedApi(null); setLoadedOrg(null); setError(''); generation.current++
     const refresh=async () => {
       if(document.visibilityState==='hidden') return
       const request=++sequence
-      try { const result=await api.appPins(); if(live && request===sequence) { setPins(result.pins);setLoadedApi(api);setLoaded(true);setError('') } }
+      try { const result=await api.appPins(); if(live && request===sequence) { setPins(result.pins);setLoadedApi(api);setLoadedOrg(orgId);setLoaded(true);setError('') } }
       catch { if(live && request===sequence) setError('固定状態を同期できません。接続を確認してください。') }
     }
     void refresh()
@@ -27,12 +28,13 @@ export function useAppPins(orgId: string, api: Pick<import('./harness').HarnessA
     return () => {live=false;generation.current++;window.clearInterval(timer);window.removeEventListener(EVENT,refresh);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh)}
   },[orgId,api])
   const toggle=useCallback(async(id:string)=>{
-    if(!loaded || loadedApi!==api || pending) throw new Error('固定状態を同期中です。しばらく待って再試行してください。')
+    if(!loaded || loadedApi!==api || loadedOrg!==orgId || pending) throw new Error('固定状態を同期中です。しばらく待って再試行してください。')
     const active=generation.current
     setPending(true)
     try { const result=await api.setAppPin(id,!pins.includes(id)); if(active===generation.current) { setPins(result.pins);setLoadedApi(api);setError('');window.dispatchEvent(new Event(EVENT)) } }
     catch(e) { if(active===generation.current) setError('固定状態を保存できませんでした。');throw e }
     finally { if(active===generation.current) setPending(false) }
-  },[api,pins,loaded,loadedApi,pending])
-  return {pins:loadedApi===api?pins:emptyPins.current,toggle,pending,error,loaded:loaded&&loadedApi===api}
+  },[api,pins,loaded,loadedApi,loadedOrg,orgId,pending])
+  const current=loaded&&loadedApi===api&&loadedOrg===orgId
+  return {pins:current?pins:emptyPins.current,toggle,pending:current&&pending,error,loaded:current}
 }
