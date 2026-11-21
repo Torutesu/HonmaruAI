@@ -224,8 +224,13 @@ export async function agentAppConnections(db, { orgId, agentId, githubId }) {
 export async function setAgentAppGrant(db, { orgId, agentId, githubId, server, granted }) {
   const name = String(server || '').trim();
   if (!name || name.length > 255) return { error: 'Choose a connected app.', status: 400 };
+  const mutationId = crypto.randomUUID();
+  const bumpAccess = db.prepare(`INSERT INTO hx_agent_access(org_id,agent_id,version,mutation_id)
+    SELECT ?1,?2,1,?3 WHERE EXISTS(SELECT 1 FROM custom_agents WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL)
+    ON CONFLICT(org_id,agent_id) DO UPDATE SET version=version+1,mutation_id=excluded.mutation_id`)
+    .bind(orgId, String(agentId), mutationId);
   if (granted) {
-    const changed = await db.prepare(`
+    const [changed] = await db.batch([db.prepare(`
       INSERT OR IGNORE INTO hx_agent_app_grants (org_id, agent_id, user_github_id, server, created_at)
       SELECT ?1, ?2, ?3, c.server, ?5 FROM app_connections c
         JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
@@ -233,7 +238,7 @@ export async function setAgentAppGrant(db, { orgId, agentId, githubId, server, g
        WHERE c.org_id = ?1 AND c.user_github_id = ?3 AND c.server = ?4
          AND c.status = 'connected' AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
       RETURNING server`)
-      .bind(orgId, String(agentId), String(githubId), name, new Date().toISOString()).all();
+      .bind(orgId, String(agentId), String(githubId), name, new Date().toISOString()), bumpAccess]);
     if (!changed.results?.length) {
       const alreadyGranted = await db.prepare(`SELECT 1 FROM hx_agent_app_grants
         WHERE org_id = ?1 AND agent_id = ?2 AND user_github_id = ?3 AND server = ?4`)
@@ -241,9 +246,9 @@ export async function setAgentAppGrant(db, { orgId, agentId, githubId, server, g
       if (!alreadyGranted) return { error: 'That connected app is not available to you.', status: 404 };
     }
   } else {
-    await db.prepare(`DELETE FROM hx_agent_app_grants
+    await db.batch([db.prepare(`DELETE FROM hx_agent_app_grants
       WHERE org_id = ?1 AND agent_id = ?2 AND user_github_id = ?3 AND server = ?4`)
-      .bind(orgId, String(agentId), String(githubId), name).run();
+      .bind(orgId, String(agentId), String(githubId), name), bumpAccess]);
   }
   return { connections: await agentAppConnections(db, { orgId, agentId, githubId }) };
 }
@@ -294,8 +299,11 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
         strict: false,
         run: async (args) => {
           const currentGrant = async () => {
-            const grant = await env.DB.prepare(`SELECT a.allow_writes AS allowWrites,agent.owner_login AS ownerLogin FROM hx_agent_app_grants g
+            const grant = await env.DB.prepare(`SELECT a.allow_writes AS allowWrites,agent.owner_login AS ownerLogin,
+                COALESCE(access.version,0) AS accessVersion,COALESCE(access.mutation_id,'') AS accessMutationId
+              FROM hx_agent_app_grants g
               JOIN custom_agents agent ON agent.org_id=g.org_id AND agent.id=g.agent_id AND agent.deleted_at IS NULL
+              LEFT JOIN hx_agent_access access ON access.org_id=g.org_id AND access.agent_id=g.agent_id
               JOIN app_connections c ON c.org_id=g.org_id AND c.user_github_id=g.user_github_id AND c.server=g.server AND c.status='connected'
               JOIN org_apps a ON a.org_id=c.org_id AND a.server=c.server
               JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
@@ -329,8 +337,11 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
           await audit(env, request, { orgId, action: "apps.tool_called", actor: person(user) || { type: "system" }, details: { app: row.server, tool: String(t.name).slice(0, 80), ok: r.ok } });
           if (requireAgentGrant) {
             const current = await currentGrant();
+            const sameAuthorization = current && stillGranted
+              && current.accessVersion === stillGranted.accessVersion
+              && current.accessMutationId === stillGranted.accessMutationId;
             const writeStillAllowed = readsOnly(t) || Boolean(writes && current?.allowWrites && current.ownerLogin === user?.login);
-            if (!current || !writeStillAllowed) {
+            if (!sameAuthorization || !writeStillAllowed) {
               return readsOnly(t)
                 ? `${row.name} access changed while the request was running; its result was discarded.`
                 : `${row.name} access changed while the request was running; the outcome is unknown. It was not retried. Reconcile it in ${row.name} before trying again.`;
