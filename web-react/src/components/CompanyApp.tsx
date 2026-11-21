@@ -53,6 +53,35 @@ export function CompanyApp({ app, api, canManage, reload, orgId }: {app: App; ap
     try { await run(async()=>{const page=await api.actionRunHistory(app.id,cursor);if(activeScope.current!==scope)return;setActionRuns(previous=>replace||!previous?page.runs:[...previous,...page.runs]);setActionRunsCursor(page.nextCursor)}) }
     finally {if(activeScope.current===scope)setActionRunsLoading(false)}
   }
+  // Keep visible executions current without asking the user to refresh. Poll
+  // only jobs the current user opened (and the one they just started); the
+  // server rechecks the creator and current App access on every read.
+  useEffect(()=>{
+    if(!job||!['queued','running'].includes(job.status))return
+    let stopped=false,inFlight=false
+    const poll=async()=>{
+      if(stopped||inFlight)return
+      inFlight=true
+      try{const response=await api.actionJob(app.id,job.id);if(!stopped&&activeScope.current===scope)setJob(response.job)}catch{/* Keep retrying while the run is active. */}finally{inFlight=false}
+    }
+    const timer=setInterval(()=>void poll(),2000)
+    return()=>{stopped=true;clearInterval(timer)}
+  },[job?.id,job?.status,api,app.id,scope])
+  useEffect(()=>{
+    const active=Object.entries(actionRunResults).filter(([,result])=>['queued','running'].includes(result.status)).map(([id])=>id)
+    if(!active.length)return
+    let stopped=false,inFlight=false
+    const poll=async()=>{
+      if(stopped||inFlight)return
+      inFlight=true
+      try{
+        const updates=await Promise.all(active.slice(0,10).map(async id=>{try{return [id,(await api.actionJob(app.id,id)).job] as const}catch{return null}}))
+        if(!stopped&&activeScope.current===scope)setActionRunResults(previous=>{const next={...previous};for(const item of updates)if(item)next[item[0]]=item[1];return next})
+      }finally{inFlight=false}
+    }
+    const timer=setInterval(()=>void poll(),2000)
+    return()=>{stopped=true;clearInterval(timer)}
+  },[actionRunResults,api,app.id,scope])
   const advanceActionBaseline=(target:string,expected:number,saved:{version?:number})=>{if(!Number.isSafeInteger(expected)||!Number.isSafeInteger(saved.version)||saved.version!==expected+1)throw new Error('保存結果を確認できません。現在の入力を控えてから再読み込みしてください。');if(actionBaseline.current.name===target&&actionBaseline.current.version===expected)actionBaseline.current={name:target,version:saved.version!}}
   const forkEntity=db?.fork?.entities.find(e=>e.key===entity)
   function appendForkSchemaOperation(operation:Record<string,unknown>) { let operations:unknown[]=[];try{const parsed=JSON.parse(forkSchemaOperations);if(Array.isArray(parsed))operations=parsed}catch{}setForkSchemaOperations(JSON.stringify([...operations,operation],null,2)) }
