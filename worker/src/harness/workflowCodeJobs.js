@@ -170,7 +170,7 @@ export async function renewWorkflowProgramLease(db,{jobId,gatewayId,leaseHash,at
 // Reconcile only persisted terminal results. The caller cannot supply an
 // outcome, source, checkpoint lease, or replacement program. Retrying this
 // transaction cannot increment the failure streak twice.
-export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=false,writeDecision=false,declined=false}={}) {
+export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=false,writeDecision=false,declined=false,externalWriteResults=[]}={}) {
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,d.definition,j.gateway_id,j.lease_hash,j.finished_at AS job_finished_at,j.status AS job_status FROM hx_workflow_activations a
   JOIN hx_workflow_run_definitions d ON d.org_id=a.org_id AND d.run_id=a.run_id
   JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id WHERE a.job_id=?1`).bind(jobId).first();
@@ -204,7 +204,7 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
    const previous=await db.prepare('SELECT recipient_user_id,data FROM cards WHERE org_id=?1 AND card_id=?2').bind(binding.org_id,cardId).first().catch(()=>null);
    let previousCard;try{previousCard=JSON.parse(previous?.data||'null')}catch{}
    if(previous?.recipient_user_id!==owner.login||previousCard?.workflowApproval?.runId!==binding.run_id
-    ||previousCard?.workflowApproval?.codeWrite?.jobId!==jobId||JSON.stringify(previousCard?.workflowApproval?.codeWrite?.body)!==JSON.stringify(request.body))return {settled:false,error:'Workflow or approver access changed before the approval was created.'};
+    ||previousCard?.workflowApproval?.codeWrite?.jobId!==jobId||JSON.stringify(previousCard?.workflowApproval?.codeWrite?.writes)!==JSON.stringify(connectionWrites))return {settled:false,error:'Workflow or approver access changed before the approval was created.'};
    if(previousCard.decision||previousCard.status!=='pending')return {settled:false,status:'awaiting-approval-settlement'};
    card=previousCard;
   }
@@ -305,13 +305,14 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
   SELECT ?1,?2,'program','effect-fence',1,'invalid-effect','fence',1,0 WHERE NOT EXISTS(
    SELECT 1 FROM hx_workflow_runs r WHERE r.org_id=?1 AND r.id=?2 AND r.status='done' AND json_extract(r.log,'$[0].jobId')=?3)`)
   .bind(binding.org_id,binding.run_id,jobId);
- const finish=async(accept)=>db.batch([...(accept?tableStatements:[]),update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,accept?1:0,approvedWrite?1:0,declined?1:0),...(accept&&tableStatements.length?[completionFence]:[]),...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
+ const writeReceipts=JSON.stringify(Array.isArray(externalWriteResults)?externalWriteResults.filter(item=>item&&typeof item.appId==='string'&&typeof item.name==='string'&&typeof item.method==='string'&&typeof item.operationId==='string'&&['sent','unknown','not_sent'].includes(item.status)).map(item=>({appId:item.appId,name:item.name,method:item.method,operationId:item.operationId,status:item.status})):[]);
+ const finish=async(accept)=>db.batch([...(accept?tableStatements:[]),update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,accept?1:0,approvedWrite?1:0,declined?1:0,writeReceipts),...(accept&&tableStatements.length?[completionFence]:[]),...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  let result;
  try{result=await finish(!writeFailed)}catch(error){
   if(!tableStatements.length)throw error;
   // A failed guarded mutation rolls back every row and event statement. Settle
   // the terminal job as failed in a clean transaction instead of retrying it.
-  const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0,approvedWrite?1:0,declined?1:0);
+  const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0,approvedWrite?1:0,declined?1:0,writeReceipts);
   result=await db.batch([rejectedUpdate,...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  }
  if(result[0]?.meta?.changes&&!writeFailed&&requestedMutations.length&&env)await drainWorkflowRowEvents(env,{limit:requestedMutations.length,now:Date.now()});
