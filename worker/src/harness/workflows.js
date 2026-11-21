@@ -2045,15 +2045,22 @@ export async function settleWorkflowApproval(env, orgId, card) {
         const bound=await appConnectionsForViewer(env.DB,orgId,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));
         return Boolean(!bound.error&&bound.connections.some(item=>item.name===source.name&&String(item.ownerId)===String(source.ownerId)&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1));
       };
-      dispatch=await invokeAppConnection(env,orgId,source.appId,definition.createdBy,{name:source.name,version:source.version,expectedOwnerId:source.ownerId,body:write.body,requestId},{additionalAuthorize:authorize}).catch(()=>({error:'The external write failed.'}));
-      approvedWrite=!dispatch?.error;
+      dispatch=await invokeAppConnection(env,orgId,source.appId,definition.createdBy,{name:source.name,version:source.version,expectedOwnerId:source.ownerId,body:item.body,requestId},{additionalAuthorize:authorize}).catch(()=>({error:'The external write failed.'}));
       if(dispatch?.error){
         const raced=await env.DB.prepare(`SELECT body_hash,status FROM hx_app_connection_requests WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND request_id=?4`)
           .bind(orgId,source.appId,source.ownerId,requestId).first().catch(()=>null);
-        if(raced?.body_hash===bodyHash&&raced.status==='succeeded')approvedWrite=true;
+        if(raced?.body_hash===bodyHash&&raced.status==='succeeded')externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'sent'});
+        else{
+          externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'unknown'});
+          externalWriteResults.push(...writes.slice(index+1).map(pending=>({appId:source.appId,name:source.name,method:source.method,operationId:pending.operationId,status:'not_sent'})));
+          approvedWrite=false;break;
+        }
+      }else{
+        externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'sent'});
+      }
       }
     }
-    await settleWorkflowProgram(env.DB,write.jobId,env,{approvedWrite,writeDecision:true});
+    await settleWorkflowProgram(env.DB,write.jobId,env,{approvedWrite,writeDecision:true,externalWriteResults});
     return getRun(env.DB,orgId,run.id);
   }
   const log = run.log;
