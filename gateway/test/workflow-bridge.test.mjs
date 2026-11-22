@@ -149,6 +149,33 @@ test('broker allows concurrent table reads while checkpoint operations keep thei
  releases.forEach(release=>release());
  assert.deepEqual((await Promise.all([checkpoint,first,second])).map(reply=>reply.value),[{read:true},{read:true},{read:true}]);
 });
+test('broker bounds concurrent App connection reads to 32 and preserves all replies',async()=>{
+ let active=0,peak=0,started=0,signalStarted,release;
+ const allStarted=new Promise(resolve=>signalStarted=resolve);
+ const gate=new Promise(resolve=>release=resolve);
+ const broker=createStateBroker(async(method)=>{
+  assert.equal(method,'connection.request');active++;started++;peak=Math.max(peak,active);
+  if(started===32)signalStarted();
+  await gate;active--;return {started};
+ });
+ const requests=Array.from({length:40},(_,index)=>broker({id:index+1,method:'connection.request',params:{appId:'app-1',name:'issues',query:{page:index}}}));
+ await allStarted;
+ assert.equal(peak,32);assert.equal(started,32);
+ release();
+ const replies=await Promise.all(requests);
+ assert.equal(replies.length,40);assert.equal(replies.every(reply=>reply.ok),true);assert.equal(peak,32);assert.equal(active,0);
+});
+test('broker rejects queued read requests safely when an activation is aborted',async()=>{
+ const controller=new AbortController();let started=0,release;
+ const gate=new Promise(resolve=>release=resolve);
+ const broker=createStateBroker(async()=>{started++;await gate;return {read:true};},{signal:controller.signal});
+ const active=Array.from({length:32},(_,index)=>broker({id:index+1,method:'connection.request',params:{appId:'app-1',name:'issues',query:{page:index}}}));
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(started,32);
+ const queued=broker({id:33,method:'connection.request',params:{appId:'app-1',name:'issues',query:{page:33}}});
+ controller.abort();
+ await assert.rejects(queued,/Activation ended/);
+ release();assert.equal((await Promise.all(active)).every(reply=>!reply.ok),true);assert.equal(started,32);
+});
 test('ended activations cannot begin queued operations or return results',async()=>{
  const controller=new AbortController();let calls=0,release;
  const broker=createStateBroker(async()=>{calls++;await new Promise(resolve=>release=resolve);return {};},{signal:controller.signal});
