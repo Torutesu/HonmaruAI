@@ -3377,6 +3377,8 @@ test('scheduled workspace-budget skips keep the Automation enabled and notify on
  await env.DB.prepare(`INSERT INTO ai_calls(org_id,user_github_id,purpose,provider,model,input_tokens,output_tokens,usd,byok,created_at)
   VALUES(?1,'9302','ask','OpenAI','gpt-4o-mini',100,100,.000001,0,?2)`).bind(ORG,at).run();
  await env.DB.prepare('UPDATE hx_workflows SET next_run_at=?1 WHERE org_id=?2 AND id=?3').bind(at,ORG,workflow.id).run();
+ const concurrentSkips=await Promise.all([0,1,2,3].map(()=>startRun(env,{orgId:ORG,workflow,trigger:'schedule',startedBy:'9302'})));
+ expect(concurrentSkips.map(run=>run.status)).toEqual(['skipped','skipped','skipped','skipped']);
  await runDueWorkflows(env,{now:new Date()});
  expect(await getWorkflow(env.DB,ORG,workflow.id)).toMatchObject({enabled:true});
  expect(Date.parse((await getWorkflow(env.DB,ORG,workflow.id)).nextRunAt)).toBeGreaterThan(Date.parse(at));
