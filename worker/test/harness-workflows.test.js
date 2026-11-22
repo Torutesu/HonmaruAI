@@ -2662,6 +2662,39 @@ test('a maker can reconcile a stale workflow run without replaying its uncertain
   expect((await send('POST', `/workflows/${workflow.id}/run`, mika, { orgId: ORG, text: 'new run' })).status).toBe(201);
 });
 
+test('a maker can record a provider-side check for an unknown external write without replaying it',async()=>{
+ const made=await send('POST','/workflows',mika,{orgId:ORG,name:'External write check',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'unused'}]});
+ expect(made.status).toBe(201);const {workflow}=await made.json();
+ const runId='run-external-write-check',startedAt='2026-11-22T00:00:00.000Z',operationId='operation-uncertain-1';
+ const log=[{step:1,type:'code',status:'failed',at:startedAt,error:'External result may be unknown; do not retry.',externalWrites:[{appId:'app-1',name:'create_issue',method:'POST',operationId,status:'unknown'}]}];
+ await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at)
+  VALUES(?1,?2,?3,'manual','failed','{}',?4,1,'9302',?5,?5)`).bind(runId,ORG,workflow.id,JSON.stringify(log),startedAt).run();
+ const payload={expectedStartedAt:startedAt,operationId,outcome:'sent',confirmProviderChecked:true,confirmNoReplay:true};
+ const response=await send('POST',`/workflows/${workflow.id}/runs/${runId}/reconcile-external-write`,mika,{orgId:ORG,...payload});
+ expect(response.status).toBe(200);const body=await response.json();
+ expect(body.run.log[0].externalWrites[0].status).toBe('unknown');
+ expect(body.run.log[0].externalWriteReconciliations).toEqual([{appId:'app-1',name:'create_issue',method:'POST',operationId,outcome:'sent',checkedAt:expect.any(String)}]);
+ expect(JSON.stringify(body.run.log)).not.toContain('checkedBy');
+ expect((await env.DB.prepare("SELECT action,body FROM audit_events WHERE org_id=?1 AND action='workflow.external_write_reconciled'").bind(ORG).first()).action).toBe('workflow.external_write_reconciled');
+ const duplicate=await send('POST',`/workflows/${workflow.id}/runs/${runId}/reconcile-external-write`,mika,{orgId:ORG,...payload});
+ expect(duplicate.status).toBe(409);
+});
+
+test('external write reconciliation rejects missing confirmation, stale runs, and unknown operation IDs',async()=>{
+ const made=await send('POST','/workflows',mika,{orgId:ORG,name:'External write guard',trigger:{type:'manual'},steps:[{type:'post',channel:'b:ops',text:'unused'}]});
+ const {workflow}=await made.json();const runId='run-external-write-guard',startedAt='2026-11-22T00:00:00.000Z';
+ const log=[{step:1,type:'code',status:'failed',at:startedAt,externalWrites:[{appId:'app-1',name:'create_issue',method:'POST',operationId:'known-uncertain',status:'unknown'}]}];
+ await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at,finished_at)
+  VALUES(?1,?2,?3,'manual','failed','{}',?4,1,'9302',?5,?5)`).bind(runId,ORG,workflow.id,JSON.stringify(log),startedAt).run();
+ const path=`/workflows/${workflow.id}/runs/${runId}/reconcile-external-write`;
+ const unconfirmed=await send('POST',path,mika,{orgId:ORG,expectedStartedAt:startedAt,operationId:'known-uncertain',outcome:'sent'});
+ expect(unconfirmed.status).toBe(400);
+ const unknown=await send('POST',path,mika,{orgId:ORG,expectedStartedAt:startedAt,operationId:'missing',outcome:'sent',confirmProviderChecked:true,confirmNoReplay:true});
+ expect(unknown.status).toBe(409);
+ const stale=await send('POST',path,mika,{orgId:ORG,expectedStartedAt:'2026-11-21T00:00:00.000Z',operationId:'known-uncertain',outcome:'not_sent',confirmProviderChecked:true,confirmNoReplay:true});
+ expect(stale.status).toBe(409);
+});
+
 test('stale recovery marks the actual later step unknown without replacing earlier success',async()=>{
  const created=await send('POST','/workflows',mika,{orgId:ORG,name:'Recover second step',trigger:{type:'manual'},steps:[
   {type:'post',channel:'b:ops',text:'Completed before interruption'},

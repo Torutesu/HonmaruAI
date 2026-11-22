@@ -106,7 +106,7 @@ import { skillMarkdown } from "./skillMarkdown.js";
 import { generateWorkflow, previewWorkflow } from './workflowCreation.js';
 import { respondToRecurringAutomationOffer } from './recurringAutomationOffers.js';
 import { completer } from "./model.js";
-import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, setWorkflowArchived, listRuns, listRunHistoryPage, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
+import { listWorkflows, getWorkflow, createWorkflow, updateWorkflow, changeWorkflowHook, replayWorkflowEvents, deleteWorkflow, setWorkflowArchived, listRuns, listRunHistoryPage, getRun, workflowRunSummary, startRun, cancelWorkflowRun, recoverStalledRun, reconcileWorkflowExternalWrite, TRIGGERS, STEP_TYPES, onRowChange, onRowDelete } from "./workflows.js";
 import { followupHistory, listFollowups, scheduleFollowup, cancelFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { profilesFor, mayAccessAgent } from "./agents.js";
@@ -983,6 +983,19 @@ export async function handleHarness(request, env, url, context = {}) {
         const result = await recoverStalledRun(env.DB, { orgId, workflowId: wfId, runId, expectedStartedAt: input.expectedStartedAt, actorId: me });
         if (result.error) return json({ message: result.error }, result.status);
         await audit(env, request, { orgId, action: 'workflow.run_reconciled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: 'unknown', replayed: false } });
+        return json(result);
+      }
+      if (runId && parts[4] === 'reconcile-external-write' && request.method === 'POST') {
+        if (!mine) return json({ message: 'Only its maker or an admin can reconcile this workflow run.' }, 403);
+        if (input?.confirmProviderChecked !== true || input?.confirmNoReplay !== true) {
+          return json({ message: 'Check the provider directly and confirm that Honmaru must not resend this request.' }, 400);
+        }
+        const result = await reconcileWorkflowExternalWrite(env.DB, {
+          orgId, workflowId: wfId, runId, expectedStartedAt: input.expectedStartedAt,
+          operationId: input.operationId, outcome: input.outcome, actorId: me,
+        });
+        if (result.error) return json({ message: result.error }, result.status);
+        await audit(env, request, { orgId, action: 'workflow.external_write_reconciled', actor: person(who.user), entity: { type: 'workflow_run', id: runId, name: wf.name }, details: { outcome: input.outcome, replayed: false } });
         return json(result);
       }
       if (request.method === 'GET' && runId) {

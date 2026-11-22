@@ -132,6 +132,7 @@ export const AUDIT_ACTIONS = {
   "workflow.safety_resumed": { category: "automation", severity: "notice", text: "{actor} resumed workflow {entity} after a safety pause" },
   "workflow.run_cancelled": { category: "automation", severity: "warning", text: "{actor} stopped later steps of workflow run {entity}" },
   "workflow.run_reconciled": { category: "automation", severity: "warning", text: "{actor} marked the outcome of workflow run {entity} unknown without replay" },
+  "workflow.external_write_reconciled": { category: "automation", severity: "warning", text: "{actor} recorded a provider-side check for an uncertain external request in workflow run {entity}" },
   "workflow.webhook_discarded": { category: "integration", severity: "warning", text: "{actor} discarded held events for workflow {entity}" },
   "workflow.webhook_replayed": { category: "integration", severity: "warning", text: "{actor} replayed held events for workflow {entity}" },
   "workflow.webhook_rotated": { category: "integration", severity: "critical", text: "{actor} rotated the webhook secret for workflow {entity}" },

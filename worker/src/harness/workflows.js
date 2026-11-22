@@ -524,10 +524,12 @@ const publicRun = (r, revisions) => {
   input: parse(r.input, null), log: parse(r.log, []).map(entry => {
     if (!entry || typeof entry !== 'object') return entry;
     const authorization = publicWorkflowAuthorizationEvents(entry.authorization);
-    const { authorization: _discarded, inputPreview: _discardedPreview, effectReceipt: _discardedReceipt, ...safeEntry } = entry;
+    const externalWrites=Array.isArray(entry.externalWrites)?entry.externalWrites.filter(item=>item&&typeof item.appId==='string'&&typeof item.name==='string'&&typeof item.method==='string'&&typeof item.operationId==='string'&&['sent','unknown','not_sent'].includes(item.status)).map(({appId,name,method,operationId,status})=>({appId,name,method,operationId,status})):[];
+    const externalWriteReconciliations=Array.isArray(entry.externalWriteReconciliations)?entry.externalWriteReconciliations.filter(item=>item&&typeof item.appId==='string'&&typeof item.name==='string'&&typeof item.method==='string'&&typeof item.operationId==='string'&&['sent','not_sent'].includes(item.outcome)&&isIsoInstant(item.checkedAt)).map(({appId,name,method,operationId,outcome,checkedAt})=>({appId,name,method,operationId,outcome,checkedAt})):[];
+    const { authorization: _discarded, inputPreview: _discardedPreview, effectReceipt: _discardedReceipt, externalWrites: _discardedWrites, externalWriteReconciliations: _discardedWriteChecks, ...safeEntry } = entry;
     const inputPreview = publicWorkflowInputPreview(entry.inputPreview);
     const effectReceipt = publicWorkflowEffectReceipt(entry.effectReceipt);
-    return { ...safeEntry, ...(inputPreview ? { inputPreview } : {}), ...(authorization.length ? { authorization } : {}), ...(effectReceipt ? { effectReceipt } : {}) };
+    return { ...safeEntry, ...(inputPreview ? { inputPreview } : {}), ...(authorization.length ? { authorization } : {}), ...(effectReceipt ? { effectReceipt } : {}), ...(externalWrites.length?{externalWrites}:{}), ...(externalWriteReconciliations.length?{externalWriteReconciliations}:{}) };
   }), nextStep: r.next_step, cardId: r.card_id,
   startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
   };
@@ -1099,6 +1101,39 @@ export async function recoverStalledRun(db, { orgId, workflowId, runId, expected
       expectedStartedAt, row.log, row.next_step, at),
     ...workflowSettlementStatements(db, orgId, runId)]);
   if (!settled[0].meta?.changes) return { error: 'This run changed while it was being reconciled. Refresh its history.', status: 409 };
+  return { run: await getRun(db, orgId, runId) };
+}
+
+// Record a maker's provider-side check for one uncertain external request.
+// This adds an auditable note to history; it never dispatches or retries the request.
+export async function reconcileWorkflowExternalWrite(db, { orgId, workflowId, runId, expectedStartedAt, operationId, outcome, actorId, at = Date.now() }) {
+  if (typeof expectedStartedAt !== 'string' || !expectedStartedAt || typeof operationId !== 'string'
+    || !/^[a-zA-Z0-9_-]{1,32}$/.test(operationId) || !['sent', 'not_sent'].includes(outcome)
+    || typeof actorId !== 'string' || !actorId || !Number.isSafeInteger(at) || at < 0) {
+    return { error: 'Confirm a provider-side check for a specific external request.', status: 400 };
+  }
+  const row = await db.prepare(`SELECT status,started_at,log FROM hx_workflow_runs
+    WHERE org_id=?1 AND workflow_id=?2 AND id=?3`).bind(orgId, workflowId, runId).first();
+  if (!row) return { error: 'No such workflow run.', status: 404 };
+  if (row.status !== 'failed' || row.started_at !== expectedStartedAt) return { error: 'This run changed. Refresh its history before reconciling the external request.', status: 409 };
+  let log;
+  try { log = JSON.parse(row.log || '[]'); } catch { return { error: 'This run history cannot be reconciled safely.', status: 409 }; }
+  if (!Array.isArray(log)) return { error: 'This run history cannot be reconciled safely.', status: 409 };
+  const entry = log.find(item => item && typeof item === 'object' && Array.isArray(item.externalWrites)
+    && item.externalWrites.some(write => write?.operationId === operationId && write.status === 'unknown'));
+  if (!entry) return { error: 'No unresolved external request with that operation ID exists in this run.', status: 409 };
+  const reconciliations = Array.isArray(entry.externalWriteReconciliations) ? entry.externalWriteReconciliations : [];
+  if (reconciliations.some(item => item?.operationId === operationId)) return { error: 'This external request already has a provider-side check recorded.', status: 409 };
+  const write = entry.externalWrites.find(item => item?.operationId === operationId && item.status === 'unknown');
+  entry.externalWriteReconciliations = [...reconciliations, {
+    appId: write.appId, name: write.name, method: write.method, operationId,
+    outcome, checkedAt: new Date(at).toISOString(), checkedBy: actorId,
+  }];
+  const updatedLog = JSON.stringify(log);
+  const result = await db.prepare(`UPDATE hx_workflow_runs SET log=?1
+    WHERE org_id=?2 AND workflow_id=?3 AND id=?4 AND started_at=?5 AND status='failed' AND log=?6`)
+    .bind(updatedLog, orgId, workflowId, runId, expectedStartedAt, row.log).run();
+  if (!result.meta?.changes) return { error: 'This run changed while its external request was being reconciled. Refresh its history.', status: 409 };
   return { run: await getRun(db, orgId, runId) };
 }
 
