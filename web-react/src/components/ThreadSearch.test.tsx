@@ -1,13 +1,15 @@
 import React from 'react'
 import {act,create} from 'react-test-renderer'
-import {afterEach,expect,test,vi} from 'vitest'
+import {afterEach,beforeEach,expect,test,vi} from 'vitest'
 import {ThreadSearch} from './ThreadSearch'
 import {hashForApp} from '../utils/route'
 import {openFileConversation} from '../utils/fileConversation'
+import {changeLocale,localeReady,t} from '../utils/i18n'
 vi.mock('../utils/fileConversation',()=>({openFileConversation:vi.fn()}))
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
 const result=(id:string,cursor:string|null=null)=>({ok:true,json:async()=>({messages:[{id,body:id,createdAt:'2026-10-20T00:00:00Z'}],nextCursor:cursor})})
-afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers()})
+beforeEach(async()=>{const values=new Map<string,string>();vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)||null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)});changeLocale('en');await localeReady()})
+afterEach(()=>{changeLocale('en');vi.unstubAllGlobals();vi.useRealTimers()})
 test('Harness room search requests and opens room-local files and linked App records',async()=>{
  vi.useFakeTimers();vi.stubGlobal('location',{hash:''})
  vi.mocked(openFileConversation).mockResolvedValue('#/c/b%3Ageneral?org=team%3Atest')
@@ -20,11 +22,11 @@ test('Harness room search requests and opens room-local files and linked App rec
  act(()=>tree.root.findByType('input').props.onChange({target:{value:'needle'}}))
  await act(async()=>{await vi.advanceTimersByTimeAsync(250)})
  expect(new URL(fetch.mock.calls[0][0]).searchParams.get('resources')).toBe('1')
- expect(tree.root.findByProps({'aria-label':'ファイルを開く: Notes.md'})).toBeTruthy()
- expect(tree.root.findByProps({'aria-label':'レコードを開く: Projects · Tasks'})).toBeTruthy()
- act(()=>tree.root.findByProps({'aria-label':'レコードを開く: Projects · Tasks'}).props.onClick())
+ expect(tree.root.findByProps({'aria-label':t('Open file: {name}',{name:'Notes.md'})})).toBeTruthy()
+ expect(tree.root.findByProps({'aria-label':t('Open record: {app} · {table}',{app:'Projects',table:'Tasks'})})).toBeTruthy()
+ act(()=>tree.root.findByProps({'aria-label':t('Open record: {app} · {table}',{app:'Projects',table:'Tasks'})}).props.onClick())
  expect(location.hash).toBe(hashForApp('app-1',api.orgId,{tableId:'table-1',rowId:'row-1'},'data'))
- await act(async()=>{await tree.root.findByProps({'aria-label':'ファイルを開く: Notes.md'}).props.onClick()})
+ await act(async()=>{await tree.root.findByProps({'aria-label':t('Open file: {name}',{name:'Notes.md'})}).props.onClick()})
  expect(openFileConversation).toHaveBeenCalledWith('file-1')
  expect(location.hash).toBe('#/c/b%3Ageneral?org=team%3Atest')
  act(()=>tree.unmount())
@@ -44,11 +46,11 @@ test('room resource results load more independently without replacing the other 
  expect(moreButtons()).toHaveLength(2)
  await act(async()=>moreButtons()[0].props.onClick())
  const fileRequest=new URL(fetch.mock.calls[1][0]);expect(fileRequest.searchParams.get('fileCursor')).toBe('file-page-2');expect(fileRequest.searchParams.get('skipRecords')).toBe('1');expect(fileRequest.searchParams.has('recordCursor')).toBe(false)
- expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-2.md'})).toBeTruthy();expect(tree.root.findByProps({'aria-label':'レコードを開く: Projects · Tasks'})).toBeTruthy()
+ expect(tree.root.findByProps({'aria-label':t('Open file: {name}',{name:'file-2.md'})})).toBeTruthy();expect(tree.root.findByProps({'aria-label':t('Open record: {app} · {table}',{app:'Projects',table:'Tasks'})})).toBeTruthy()
  expect(moreButtons()).toHaveLength(1)
  await act(async()=>moreButtons()[0].props.onClick())
  const recordRequest=new URL(fetch.mock.calls[2][0]);expect(recordRequest.searchParams.get('recordCursor')).toBe('record-page-2');expect(recordRequest.searchParams.get('skipFiles')).toBe('1');expect(recordRequest.searchParams.has('fileCursor')).toBe(false)
- expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-1.md'})).toBeTruthy();expect(tree.root.findByProps({'aria-label':'ファイルを開く: file-2.md'})).toBeTruthy();expect(tree.root.findAll(node=>node.props['aria-label']?.startsWith('レコードを開く:'))).toHaveLength(2)
+ expect(tree.root.findByProps({'aria-label':t('Open file: {name}',{name:'file-1.md'})})).toBeTruthy();expect(tree.root.findByProps({'aria-label':t('Open file: {name}',{name:'file-2.md'})})).toBeTruthy();expect(tree.root.findAll(node=>node.props['aria-label']?.startsWith('Open record:'))).toHaveLength(2)
  expect(moreButtons()).toHaveLength(0)
  act(()=>tree.unmount())
 })
@@ -68,8 +70,8 @@ test('collects every page and navigates older and newer matches without closing'
  act(()=>{tree=create(<ThreadSearch api={api} channel="b:general" threadId="root" onClose={close} onSelect={select}/>)})
  act(()=>tree.root.findByType('input').props.onChange({target:{value:'needle'}}));await act(async()=>{await vi.advanceTimersByTimeAsync(250)})
  expect(fetch.mock.calls[1][0]).toContain('before=31');expect(select.mock.calls[0][0].id).toBe('newest')
- await act(async()=>tree.root.findByProps({'aria-label':'前の結果へ'}).props.onClick());expect(select.mock.calls.at(-1)![0].id).toBe('older')
- await act(async()=>tree.root.findByProps({'aria-label':'新しい結果へ'}).props.onClick());expect(select.mock.calls.at(-1)![0].id).toBe('newest')
+ await act(async()=>tree.root.findByProps({'aria-label':t('Previous result')}).props.onClick());expect(select.mock.calls.at(-1)![0].id).toBe('older')
+ await act(async()=>tree.root.findByProps({'aria-label':t('Next result')}).props.onClick());expect(select.mock.calls.at(-1)![0].id).toBe('newest')
  expect(close).not.toHaveBeenCalled();act(()=>tree.unmount())
 })
 test('room search uses the exact room endpoint and aborts navigation when closed',async()=>{
@@ -79,6 +81,19 @@ test('room search uses the exact room endpoint and aborts navigation when closed
  act(()=>tree.root.findByType('input').props.onChange({target:{value:'needle'}}))
  await act(async()=>{await vi.advanceTimersByTimeAsync(250)})
  const url=new URL(fetch.mock.calls[0][0]);expect(url.pathname).toBe('/channels/room/search');expect(url.searchParams.get('channel')).toBe('b:private');expect(url.searchParams.has('messageId')).toBe(false)
- expect(tree.root.findByType('input').props['aria-label']).toBe('ルーム内の検索語')
+ expect(tree.root.findByType('input').props['aria-label']).toBe(t('Search term in Room'))
  const signal=select.mock.calls[0][1];expect(signal.aborted).toBe(false);act(()=>tree.unmount());expect(signal.aborted).toBe(true)
+})
+test('room search controls and accessible labels follow the selected interface language',async()=>{
+ await act(async()=>{changeLocale('es');await localeReady()})
+ expect(t('Search within Room')).toBe('Buscar en la Room')
+ vi.useFakeTimers();vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({messages:[],nextCursor:null,files:[{id:'file-es',name:'Notas.md',scope:'b:general',snippet:'resultado'}],filesTruncated:true,filesNextCursor:'next'})}));let tree!:ReturnType<typeof create>
+ act(()=>{tree=create(<ThreadSearch api={api} channel="b:general" onClose={()=>{}} onSelect={()=>{}}/>)} )
+ act(()=>tree.root.findByType('input').props.onChange({target:{value:'nota'}}));await act(async()=>{await vi.advanceTimersByTimeAsync(250)})
+ expect(tree.root.findByProps({role:'search'}).props['aria-label']).toBe('Buscar en la Room')
+ expect(tree.root.findByType('input').props['aria-label']).toBe('Término de búsqueda en la Room')
+ expect(tree.root.findByProps({'aria-label':'Cerrar búsqueda'})).toBeTruthy()
+ expect(tree.root.findByProps({role:'region'}).props['aria-label']).toBe('Recursos de esta Room')
+ expect(JSON.stringify(tree.toJSON())).toContain('Cargar más archivos')
+ act(()=>tree.unmount())
 })

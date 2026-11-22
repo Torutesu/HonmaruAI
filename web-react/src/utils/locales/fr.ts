@@ -2815,4 +2815,16 @@ Object.assign(table, {
   'ChatGPT custom MCP setup guide': 'Guide de configuration MCP personnalisé de ChatGPT',
   'Copy MCP URL': 'Copier l’URL MCP', 'MCP URL copied.': 'URL MCP copiée.', 'Could not copy the MCP URL.': 'Impossible de copier l’URL MCP.', 'Copied': 'Copié',
 })
+Object.assign(table, {
+  'Search within thread': 'Rechercher dans le fil', 'Search within Room': 'Rechercher dans la Room',
+  'Search term in thread': 'Terme à rechercher dans le fil', 'Search term in Room': 'Terme à rechercher dans la Room',
+  'Searching…': 'Recherche…', 'Moving to result…': 'Ouverture du résultat…',
+  'Could not load search results': 'Impossible de charger les résultats', 'Result {current} of {total}': '{current} sur {total}',
+  'Retry search': 'Réessayer la recherche', 'Previous result': 'Résultat précédent', 'Next result': 'Résultat suivant', 'Close search': 'Fermer la recherche',
+  'Room resources': 'Ressources de cette Room', 'File search results': 'Résultats des fichiers', 'Files in this Room': 'Fichiers de cette Room', 'Open file: {name}': 'Ouvrir le fichier : {name}',
+  'Could not load more files.': 'Impossible de charger plus de fichiers.', 'Retry loading files': 'Réessayer le chargement des fichiers', 'Load more files': 'Charger plus de fichiers',
+  'App record search results': 'Résultats des enregistrements d’Apps', 'Apps linked to this Room': 'Apps liées à cette Room',
+  'Open record: {app} · {table}': 'Ouvrir l’enregistrement : {app} · {table}', 'Could not load more records.': 'Impossible de charger plus d’enregistrements.',
+  'Retry loading records': 'Réessayer le chargement des enregistrements', 'Load more records': 'Charger plus d’enregistrements'
+})
 export default table

@@ -2812,4 +2812,16 @@ Object.assign(table, {
   'ChatGPT custom MCP setup guide': 'Guía para configurar MCP personalizado en ChatGPT',
   'Copy MCP URL': 'Copiar URL MCP', 'MCP URL copied.': 'URL MCP copiada.', 'Could not copy the MCP URL.': 'No se pudo copiar la URL MCP.', 'Copied': 'Copiado',
 })
+Object.assign(table, {
+  'Search within thread': 'Buscar en el hilo', 'Search within Room': 'Buscar en la Room',
+  'Search term in thread': 'Término de búsqueda en el hilo', 'Search term in Room': 'Término de búsqueda en la Room',
+  'Searching…': 'Buscando…', 'Moving to result…': 'Abriendo resultado…',
+  'Could not load search results': 'No se pudieron cargar los resultados', 'Result {current} of {total}': '{current} de {total}',
+  'Retry search': 'Reintentar búsqueda', 'Previous result': 'Resultado anterior', 'Next result': 'Resultado siguiente', 'Close search': 'Cerrar búsqueda',
+  'Room resources': 'Recursos de esta Room', 'File search results': 'Resultados de archivos', 'Files in this Room': 'Archivos de esta Room', 'Open file: {name}': 'Abrir archivo: {name}',
+  'Could not load more files.': 'No se pudieron cargar más archivos.', 'Retry loading files': 'Reintentar la carga de archivos', 'Load more files': 'Cargar más archivos',
+  'App record search results': 'Resultados de registros de Apps', 'Apps linked to this Room': 'Apps vinculadas a esta Room',
+  'Open record: {app} · {table}': 'Abrir registro: {app} · {table}', 'Could not load more records.': 'No se pudieron cargar más registros.',
+  'Retry loading records': 'Reintentar la carga de registros', 'Load more records': 'Cargar más registros'
+})
 export default table

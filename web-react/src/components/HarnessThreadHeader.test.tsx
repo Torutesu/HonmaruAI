@@ -4,6 +4,7 @@ import {afterEach,expect,test,vi} from 'vitest'
 import {HarnessThreadHeader} from './HarnessThreadHeader'
 import {ExternalThreadShare} from './ExternalThreadShare'
 import {RowMenu} from './RowMenu'
+import {changeLocale,localeReady} from '../utils/i18n'
 vi.mock('../utils/useThreadNotifications',()=>({useThreadNotifications:()=>({muted:false,busy:false,error:'',toggle:()=>{}})}))
 vi.mock('./RowMenu',()=>({RowMenu:()=>null}))
 vi.mock('./ExternalThreadShare',()=>({ExternalThreadShare:(props:any)=><div data-testid='external-thread-share' data-thread={props.threadId}/> }))
@@ -11,8 +12,8 @@ vi.mock('./Dialog',()=>({Dialog:({children,footer}:any)=><section>{children}{foo
 const api={httpBase:'https://api.example',orgId:'team:test',sessionToken:'token'}
 const parent:any={id:'root',body:'Original request',threadTitle:'Title',threadTitleVersion:1,canRenameThread:true}
 const ok=(value:any,status=200)=>({ok:status===200,status,json:async()=>value})
-function globals(){vi.stubGlobal('window',{dispatchEvent:vi.fn()});vi.stubGlobal('CustomEvent',class{constructor(public type:string,public detail:any){}})}
-afterEach(()=>vi.unstubAllGlobals())
+function globals(){vi.stubGlobal('window',{dispatchEvent:vi.fn(),addEventListener:vi.fn(),removeEventListener:vi.fn()});vi.stubGlobal('CustomEvent',class{constructor(public type:string,public detail:any){}})}
+afterEach(()=>{changeLocale('en');vi.unstubAllGlobals()})
 function begin(tree:ReturnType<typeof create>){act(()=>tree.root.findByProps({'aria-label':'その他のスレッド操作'}).props.onClick({currentTarget:{getBoundingClientRect:()=>({left:0,bottom:0})}}));act(()=>tree.root.findByType(RowMenu).props.entries.find((entry:any)=>entry.label==='スレッド名を変更').onSelect())}
 const button=(tree:ReturnType<typeof create>,label:string)=>tree.root.findAllByType('button').find(node=>node.children.includes(label))!
 test('rename preserves the original message and submits the version captured when editing began',async()=>{
@@ -55,5 +56,15 @@ test('named collaborators are separate from public snapshot sharing',()=>{
  expect(entries.map((entry:any)=>entry.label)).toContain('公開リンクを管理')
  act(()=>entries.find((entry:any)=>entry.label==='外部ユーザーと共有').onSelect())
  expect(tree!.root.findByType(ExternalThreadShare).props.threadId).toBe(parent.id)
+ act(()=>tree!.unmount())
+})
+
+test('thread search menu item follows the selected interface language',async()=>{
+ const values=new Map<string,string>();vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)||null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)})
+ await act(async()=>{changeLocale('es');await localeReady()})
+ globals();let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<HarnessThreadHeader api={api} channel="b:general" parent={parent} room="general" onClose={()=>{}} onParent={()=>{}} onSearchSelect={()=>{}}/>)})
+ act(()=>tree!.root.findByProps({'aria-label':'その他のスレッド操作'}).props.onClick({currentTarget:{getBoundingClientRect:()=>({left:0,bottom:0})}}))
+ expect(tree!.root.findByType(RowMenu).props.entries.map((entry:any)=>entry.label)).toContain('Buscar en el hilo')
  act(()=>tree!.unmount())
 })

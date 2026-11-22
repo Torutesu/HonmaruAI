@@ -4583,4 +4583,16 @@ Object.assign(table, {
   'ChatGPT custom MCP setup guide': 'ChatGPTのカスタムMCP設定ガイド',
   'Copy MCP URL': 'MCP URLをコピー', 'MCP URL copied.': 'MCP URLをコピーしました。', 'Could not copy the MCP URL.': 'MCP URLをコピーできませんでした。', 'Copied': 'コピー済み',
 })
+Object.assign(table, {
+  'Search within thread': 'スレッド内を検索', 'Search within Room': 'ルーム内を検索',
+  'Search term in thread': 'スレッド内の検索語', 'Search term in Room': 'ルーム内の検索語',
+  'Searching…': '検索中…', 'Moving to result…': '検索結果へ移動中…',
+  'Could not load search results': '検索結果を取得できませんでした', 'Result {current} of {total}': '{total}件中{current}件目',
+  'Retry search': '検索を再試行', 'Previous result': '前の結果へ', 'Next result': '次の結果へ', 'Close search': '検索を閉じる',
+  'Room resources': 'このルームのリソース', 'File search results': 'ファイルの検索結果', 'Files in this Room': 'このルームのファイル', 'Open file: {name}': 'ファイルを開く: {name}',
+  'Could not load more files.': '追加のファイルを取得できませんでした。', 'Retry loading files': 'ファイルの読み込みを再試行', 'Load more files': 'さらにファイルを表示',
+  'App record search results': 'Appレコードの検索結果', 'Apps linked to this Room': 'このルームにリンクされたApp',
+  'Open record: {app} · {table}': 'レコードを開く: {app} · {table}', 'Could not load more records.': '追加のレコードを取得できませんでした。',
+  'Retry loading records': 'レコードの読み込みを再試行', 'Load more records': 'さらにレコードを表示'
+})
 export default table

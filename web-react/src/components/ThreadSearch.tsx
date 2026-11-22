@@ -5,10 +5,12 @@ import {textMatchRanges} from '../utils/textMatches'
 import {enterKey} from '../utils/keys'
 import {hashForApp} from '../utils/route'
 import {openFileConversation} from '../utils/fileConversation'
+import {useT} from '../utils/i18n'
 type Api={httpBase:string;orgId:string;sessionToken:string}
 type FileHit={id:string;name:string;scope:string;snippet:string}
 type RecordHit={id:string;appId:string;appName:string;tableId:string;tableName:string;rowId:string;snippet:string}
 export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:{api:Api;channel:string;threadId?:string;focusKey?:number;onClose:()=>void;onSelect:(message:ChannelMessage,signal:AbortSignal)=>void|Promise<void>}){
+ const t=useT()
  const [query,setQuery]=useState(''),[messages,setMessages]=useState<ChannelMessage[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(false),[index,setIndex]=useState(0),[retry,setRetry]=useState(0)
  const [files,setFiles]=useState<FileHit[]>([]),[records,setRecords]=useState<RecordHit[]>([]),[fileCursor,setFileCursor]=useState<string|null>(null),[recordCursor,setRecordCursor]=useState<string|null>(null),[filesTruncated,setFilesTruncated]=useState(false),[recordsTruncated,setRecordsTruncated]=useState(false),[loadingMore,setLoadingMore]=useState({files:false,records:false}),[resourcePageError,setResourcePageError]=useState({files:false,records:false}),[openingResource,setOpeningResource]=useState<string|null>(null)
  const pageControllers=useRef<Partial<Record<'files'|'records',AbortController>>>({})
@@ -97,27 +99,27 @@ export function ThreadSearch({api,channel,threadId,onClose,onSelect,focusKey=0}:
   return()=>{observer.disconnect();registry.delete(threadId?'thread-search':'room-search')}
  },[query,threadId])
  const move=(delta:number)=>{if(!messages.length)return;const next=(index+delta+messages.length)%messages.length;setIndex(next);choose(messages[next])}
- return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={threadId?"スレッド内を検索":"ルーム内を検索"} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(event.target===host.current?.querySelector('input')&&enterKey(event)){event.preventDefault();move(event.shiftKey?-1:1)}}}>
-  <Icon name="search" size={16}/><input autoFocus aria-label={threadId?"スレッド内の検索語":"ルーム内の検索語"} maxLength={200} placeholder="検索" value={query} onChange={event=>setQuery(event.target.value)}/>
-  <span role="status">{busy?'検索中':moving?'移動中':error?'取得失敗':query.trim()?`${messages.length?index+1:0} / ${messages.length}`:''}</span>
-  {error&&<button type="button" aria-label="検索を再試行" onClick={()=>setRetry(n=>n+1)}><Icon name="repeat" size={14}/></button>}
-  <button type="button" aria-label="前の結果へ" disabled={busy||!messages.length} onClick={()=>move(1)}><Icon name="arrow-up" size={14}/></button>
-  <button type="button" aria-label="新しい結果へ" disabled={busy||!messages.length} onClick={()=>move(-1)}><Icon name="arrow-down" size={14}/></button>
-  <button type="button" aria-label="検索を閉じる" onClick={onClose}><Icon name="x" size={14}/></button>
-  {(files.length>0||records.length>0||filesTruncated||recordsTruncated)&&<div className="hx-thread-search-resources" role="region" aria-label="このルームのリソース">
-   {(files.length>0||filesTruncated)&&<section className="hx-thread-search-resource-section" aria-label="ファイルの検索結果">
-    <h3>このルームのファイル</h3>
-    {files.map(file=><button key={file.id} type="button" className="hx-thread-search-resource" aria-label={`ファイルを開く: ${file.name}`} disabled={openingResource!==null} onClick={()=>void openFile(file)}>
+ return <div ref={host} className="hx-thread-search-bar" role="search" aria-label={t(threadId?'Search within thread':'Search within Room')} onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose()}else if(event.target===host.current?.querySelector('input')&&enterKey(event)){event.preventDefault();move(event.shiftKey?-1:1)}}}>
+  <Icon name="search" size={16}/><input autoFocus aria-label={t(threadId?'Search term in thread':'Search term in Room')} maxLength={200} placeholder={t('Search')} value={query} onChange={event=>setQuery(event.target.value)}/>
+  <span role="status">{busy?t('Searching…'):moving?t('Moving to result…'):error?t('Could not load search results'):query.trim()?t('Result {current} of {total}',{current:messages.length?index+1:0,total:messages.length}):''}</span>
+  {error&&<button type="button" aria-label={t('Retry search')} onClick={()=>setRetry(n=>n+1)}><Icon name="repeat" size={14}/></button>}
+  <button type="button" aria-label={t('Previous result')} disabled={busy||!messages.length} onClick={()=>move(1)}><Icon name="arrow-up" size={14}/></button>
+  <button type="button" aria-label={t('Next result')} disabled={busy||!messages.length} onClick={()=>move(-1)}><Icon name="arrow-down" size={14}/></button>
+  <button type="button" aria-label={t('Close search')} onClick={onClose}><Icon name="x" size={14}/></button>
+  {(files.length>0||records.length>0||filesTruncated||recordsTruncated)&&<div className="hx-thread-search-resources" role="region" aria-label={t('Room resources')}>
+   {(files.length>0||filesTruncated)&&<section className="hx-thread-search-resource-section" aria-label={t('File search results')}>
+    <h3>{t('Files in this Room')}</h3>
+    {files.map(file=><button key={file.id} type="button" className="hx-thread-search-resource" aria-label={t('Open file: {name}',{name:file.name})} disabled={openingResource!==null} onClick={()=>void openFile(file)}>
      <strong>{file.name}</strong><span>{file.snippet}</span>
     </button>)}
-    {filesTruncated&&<div className="hx-thread-search-more-row">{resourcePageError.files&&<span role="status">追加のファイルを取得できませんでした。</span>}<button type="button" className="hx-thread-search-more" disabled={loadingMore.files||!fileCursor} onClick={()=>void loadMoreResources('files')}>{loadingMore.files?'読み込み中…':resourcePageError.files?'再試行':'さらに表示'}</button></div>}
+    {filesTruncated&&<div className="hx-thread-search-more-row">{resourcePageError.files&&<span role="status">{t('Could not load more files.')}</span>}<button type="button" className="hx-thread-search-more" disabled={loadingMore.files||!fileCursor} onClick={()=>void loadMoreResources('files')}>{loadingMore.files?t('Loading…'):resourcePageError.files?t('Retry loading files'):t('Load more files')}</button></div>}
    </section>}
-   {(records.length>0||recordsTruncated)&&<section className="hx-thread-search-resource-section" aria-label="Appレコードの検索結果">
-    <h3>このルームにリンクされたApp</h3>
-    {records.map(record=><button key={`${record.appId}:${record.rowId}`} type="button" className="hx-thread-search-resource" aria-label={`レコードを開く: ${record.appName} · ${record.tableName}`} onClick={()=>openRecord(record)}>
+   {(records.length>0||recordsTruncated)&&<section className="hx-thread-search-resource-section" aria-label={t('App record search results')}>
+    <h3>{t('Apps linked to this Room')}</h3>
+    {records.map(record=><button key={`${record.appId}:${record.rowId}`} type="button" className="hx-thread-search-resource" aria-label={t('Open record: {app} · {table}',{app:record.appName,table:record.tableName})} onClick={()=>openRecord(record)}>
      <strong>{record.appName} · {record.tableName}</strong><span>{record.snippet}</span>
     </button>)}
-    {recordsTruncated&&<div className="hx-thread-search-more-row">{resourcePageError.records&&<span role="status">追加のレコードを取得できませんでした。</span>}<button type="button" className="hx-thread-search-more" disabled={loadingMore.records||!recordCursor} onClick={()=>void loadMoreResources('records')}>{loadingMore.records?'読み込み中…':resourcePageError.records?'再試行':'さらに表示'}</button></div>}
+    {recordsTruncated&&<div className="hx-thread-search-more-row">{resourcePageError.records&&<span role="status">{t('Could not load more records.')}</span>}<button type="button" className="hx-thread-search-more" disabled={loadingMore.records||!recordCursor} onClick={()=>void loadMoreResources('records')}>{loadingMore.records?t('Loading…'):resourcePageError.records?t('Retry loading records'):t('Load more records')}</button></div>}
    </section>}
   </div>}
  </div>
