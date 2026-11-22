@@ -112,3 +112,31 @@ test('isolated guest rejects unsupported agent schemas before sending an RPC',as
   assert.equal(await completion,1);assert.match(stderr,/Unsupported agent schema keyword/);assert.equal(requests.length,0);
  }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
 });
+
+test('isolated guest routes a bound App connection read through the host broker',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});let output='',stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:value=>output+=value,request:request=>{requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{data:{items:[{id:'issue-1'}]}}})+'\n');}});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace',connectionSources:[{appId:'app-1',name:'issues',ownerId:'owner-1',version:2,method:'GET'}]},code:`import {connection} from '@honmaru/workflow-sdk';const result=await connection.request({appId:'app-1',name:'issues',query:{state:'open'}});console.log(JSON.stringify(result.data));`})+'\n');
+  assert.equal(await completion,0,stderr);assert.deepEqual(JSON.parse(output.trim()),{items:[{id:'issue-1'}]});
+  assert.deepEqual(requests,[{id:1,method:'connection.request',params:{appId:'app-1',name:'issues',query:{state:'open'}}}]);
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});
+
+test('isolated guest stages App connection writes through the host approval broker',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});let output='',stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:value=>output+=value,request:request=>{requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{staged:true}})+'\n');}});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace',connectionSources:[{appId:'app-1',name:'issues',ownerId:'owner-1',version:2,method:'POST',write:true}]},code:`import {connection} from '@honmaru/workflow-sdk';const result=await connection.stageWrite({appId:'app-1',name:'issues',operationId:'create-1',body:{title:'A'}});console.log(JSON.stringify(result));`})+'\n');
+  assert.equal(await completion,0,stderr);assert.deepEqual(JSON.parse(output.trim()),{staged:true});
+  assert.deepEqual(requests,[{id:1,method:'connection.stageWrite',params:{appId:'app-1',name:'issues',operationId:'create-1',body:{title:'A'}}}]);
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});
