@@ -86,7 +86,7 @@ test('an opened in-progress action result refreshes automatically until it finis
   appActions:vi.fn().mockResolvedValue({actions:[]}),appConnections:vi.fn().mockResolvedValue({connections:[]}),
   appDatabase:vi.fn().mockResolvedValue({fork:null,version:1,entities:[],migrations:[]}),gateways:vi.fn().mockResolvedValue({gateways:[]}),
   actionRunHistory:vi.fn().mockResolvedValue({runs:[runItem]}),
-  actionJob:vi.fn().mockResolvedValueOnce({job:{...runItem,result:null}}).mockResolvedValueOnce({job:{...runItem,status:'succeeded',finishedAt:1003,result:{stdout:'done'}}}),
+  actionJob:vi.fn().mockResolvedValueOnce({job:{...runItem,result:null,runtimeLog:'step 1'}}).mockResolvedValueOnce({job:{...runItem,status:'succeeded',finishedAt:1003,result:{stdout:'done'},runtimeLog:'step 1\nstep 2'}}),
  }
  let tree:ReturnType<typeof create>|undefined
  try{
@@ -95,9 +95,11 @@ test('an opened in-progress action result refreshes automatically until it finis
   await act(async()=>button('Load execution history').props.onClick())
   await act(async()=>button('View result').props.onClick())
   expect(api.actionJob).toHaveBeenCalledTimes(1)
+  expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('step 1'))).toBe(true)
   await act(async()=>{await vi.advanceTimersByTimeAsync(2000)})
   expect(api.actionJob).toHaveBeenCalledTimes(2)
   expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('done'))).toBe(true)
+  expect(tree!.root.findAllByType('pre').some(item=>item.children.join('').includes('step 1\nstep 2'))).toBe(true)
  }finally{
   if(tree)act(()=>tree!.unmount())
   vi.useRealTimers()

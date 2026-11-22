@@ -89,6 +89,7 @@ const table: Record<string, string> = {
   'View result': '結果を表示',
   'Refresh result': '結果を更新',
   'Execution result for {name}': '{name} の実行結果',
+  'Live runtime output': '実行中のログ',
   'Execution status': '実行状態',
   'Load more runs': 'さらに読み込む',
   'JavaScript function body': 'JavaScript 関数本体',

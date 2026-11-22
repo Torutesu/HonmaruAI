@@ -114,6 +114,7 @@ const table: Record<string, string> = {
   'View result': 'Ergebnis anzeigen',
   'Refresh result': 'Ergebnis aktualisieren',
   'Execution result for {name}': 'Ausführungsergebnis für {name}',
+  'Live runtime output': 'Laufzeitausgabe in Echtzeit',
   'Execution status': 'Ausführungsstatus',
   'Load more runs': 'Weitere Ausführungen laden',
   'JavaScript function body': 'JavaScript-Funktionskörper',

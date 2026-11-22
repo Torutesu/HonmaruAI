@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 
 export const IMAGE = 'docker.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402';
 // Trusted bootstraps run inside the VM. No task code executes on macOS.
@@ -79,13 +80,15 @@ function control(binary, args) {
   });
 }
 
-export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal, environment, spawnProcess = spawn, controlProcess = control } = {}) {
+export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAINER_BIN || 'container', timeoutMs = 60000, signal, environment, spawnProcess = spawn, controlProcess = control, onOutput } = {}) {
   const clean = validatePayload(payload,{environment});
   if (signal?.aborted) return { status: 'failed', stdout: '', stderr: 'Execution cancelled.', exitCode: null };
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) throw new Error('Invalid execution timeout.');
   const name = `honmaru-${randomUUID()}`;
   let status = null, killPromise, forceTimer;
   let stdout = Buffer.alloc(0), stderr = Buffer.alloc(0), seen = 0;
+  let outputTail = Promise.resolve();
+  const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
   const child = spawnProcess(binary, containerArgs(name), { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
   const stop = reason => {
     if (status) return;
@@ -96,9 +99,12 @@ export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAI
   };
   const capture = target => chunk => {
     const remaining = Math.max(0, 32768 - seen);
+    const captured = chunk.subarray(0, remaining);
     seen += chunk.length;
-    if (target === 'stdout') stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)]);
-    else stderr = Buffer.concat([stderr, chunk.subarray(0, remaining)]);
+    if (target === 'stdout') stdout = Buffer.concat([stdout, captured]);
+    else stderr = Buffer.concat([stderr, captured]);
+    const text = decoders[target].write(captured);
+    if (text && onOutput) outputTail = outputTail.then(() => onOutput({ stream: target, text })).catch(() => {});
     if (seen > 32768) stop('failed');
   };
   child.stdout.on('data', capture('stdout')); child.stderr.on('data', capture('stderr'));
@@ -110,6 +116,12 @@ export async function runIsolated(payload, { binary = process.env.HONMARU_CONTAI
     const completed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', code => resolve(code)); });
     child.stdin.end(JSON.stringify(clean));
     const code = await completed;
+    for (const stream of ['stdout', 'stderr']) {
+      const text = decoders[stream].end();
+      if (text && onOutput) outputTail = outputTail.then(() => onOutput({ stream, text })).catch(() => {});
+    }
+    if (onOutput) outputTail = outputTail.then(() => onOutput({ flush: true })).catch(() => {});
+    await outputTail;
     if (killPromise) await killPromise;
     const result = { status: status || (code === 0 ? 'succeeded' : 'failed'), stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), exitCode: code };
     if (seen > 32768) result.stderr += '\nOutput limit exceeded.';

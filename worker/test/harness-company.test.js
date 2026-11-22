@@ -344,6 +344,25 @@ test('action publication, exact revision, idempotency and app/caller job isolati
  expect((await (await run('actions')).json()).actions[0].published).toBe(draft.code);
  expect(JSON.parse((await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE id=?1').bind(job.id).first()).payload).code).toBe(draft.code);
 });
+test('App action runtime logs stream to their creator and stop when App access is revoked',async()=>{
+ await run('actions',{action:'draft',name:'report',version:0,code:'console.log("started"); return input'});
+ await run('actions',{action:'publish',name:'report',version:1});
+ const gateway=(await(await call('/gateways',owner,{name:'Runtime log node'})).json());
+ const requested=await(await run('actions',{action:'run',name:'report',version:2,gatewayId:gateway.gateway.id,input:{ok:true},requestId:'runtime-log'},member)).json();
+ const nodeCall=(path,body)=>worker.fetch(new Request(`https://example.com/gateways${path}`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${gateway.token}`},body:JSON.stringify({orgId,...body})}),{...env});
+ const claimed=await(await nodeCall('/claim',{})).json();
+ expect(claimed.job).toMatchObject({id:requested.job.id,payload:{appAction:true}});
+ expect((await nodeCall(`/jobs/${requested.job.id}/log`,{lease:claimed.job.lease,sequence:1,text:'started\nstep 1'})).status).toBe(200);
+ expect((await nodeCall(`/jobs/${requested.job.id}/log`,{lease:claimed.job.lease,sequence:2,text:'started\nstep 1\nstep 2'})).status).toBe(200);
+ expect((await nodeCall(`/jobs/${requested.job.id}/log`,{lease:claimed.job.lease,sequence:1,text:'replayed'})).status).toBe(409);
+ const visible=await(await run(`actions?jobId=${requested.job.id}`,undefined,member)).json();
+ expect(visible.job.runtimeLog).toBe('started\nstep 1\nstep 2');
+ expect((await run(`actions?jobId=${requested.job.id}`,undefined,owner)).status).toBe(404);
+ const revoked=await worker.fetch(new Request(`https://example.com/apps/${app.id}/access`,{method:'PUT',headers:{'content-type':'application/json','x-session-token':owner},body:JSON.stringify({orgId,version:0,visibility:'private'})}),{...env});
+ expect(revoked.status).toBe(200);
+ expect((await nodeCall(`/jobs/${requested.job.id}/log`,{lease:claimed.job.lease,sequence:3,text:'must not be stored'})).status).toBe(409);
+ expect((await run(`actions?jobId=${requested.job.id}`,undefined,member)).status).toBe(404);
+});
 test('app action history is paged, creator scoped, retained, and omits job payload and result until detail is requested',async()=>{
  await run('actions',{action:'draft',name:'report',version:0,code:'return input.secret'});
  await run('actions',{action:'publish',name:'report',version:1});

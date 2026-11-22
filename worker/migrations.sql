@@ -174,6 +174,9 @@ CREATE TABLE IF NOT EXISTS hx_gateway_acp_agents (org_id TEXT NOT NULL, gateway_
 CREATE TABLE IF NOT EXISTS hx_gateway_jobs (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, gateway_id TEXT NOT NULL REFERENCES hx_gateways(id), created_by TEXT NOT NULL, request_id TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, result TEXT, lease_hash TEXT, lease_until INTEGER, deadline INTEGER, created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, UNIQUE(org_id, created_by, request_id));
 ALTER TABLE hx_gateway_jobs ADD COLUMN acp_progress TEXT;
 ALTER TABLE hx_gateway_jobs ADD COLUMN acp_progress_at INTEGER;
+ALTER TABLE hx_gateway_jobs ADD COLUMN runtime_log TEXT;
+ALTER TABLE hx_gateway_jobs ADD COLUMN runtime_log_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hx_gateway_jobs ADD COLUMN runtime_log_at INTEGER;
 ALTER TABLE hx_agent_profiles ADD COLUMN native_browser_enabled INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE hx_agent_profiles ADD COLUMN native_browser_gateway_id TEXT;
 CREATE INDEX IF NOT EXISTS hx_gateway_jobs_queue ON hx_gateway_jobs(gateway_id, status, created_at);

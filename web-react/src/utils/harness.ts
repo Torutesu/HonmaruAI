@@ -120,7 +120,7 @@ export interface Run { definitionRevision?:number|null; definitionSnapshotAvaila
 export interface WorkflowRunPage { runs: Run[]; hasMore: boolean; nextCursor: string | null }
 export interface Followup { id: string; threadId?: string | null; channel: string; instruction: string; dueAt: string; status: string; agentId: string | null; result?: string | null; doneAt?: string | null; claimedAt?: string | null }
 export interface Gateway { id: string; name: string; createdAt: number; lastSeenAt: number | null; revokedAt: number | null; acpAgents?: string[] }
-export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
+export interface GatewayJob { id: string; gatewayId: string; status: string; createdAt: number; runtimeLog?: string; runtimeLogAt?: number | null; result: { stdout?: string; stderr?: string; error?: string; exitCode?: number | null } | null }
 export interface Skill { sourceScope?: { agentId: string; channel: string | null } | null; createdByName?: string; metadata?: Record<string, unknown>; visibility?: 'workspace' | 'private'; accessVersion?: number; canShare?: boolean; canEdit?: boolean; updatedAt?: string; id: string; name: string; description: string; body: string; agents?: string[]; createdBy: string }
 export interface SkillShareLink { id: string; createdAt: string; expiresAt: string; revokedAt: string | null; fileCount: number; totalBytes: number }
 export interface SharedSkillInfo { name: string; description: string; metadata: Record<string, unknown>; fileCount: number; totalBytes: number; expiresAt: string }

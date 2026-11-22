@@ -40,7 +40,7 @@ export async function readExecution(db, orgId, me, jobId) {
     if (!definition || !(await mayViewWorkflow(db,orgId,definition,me)) ||
         (context?.roomId && !(await mayUseConversation(db,orgId,me,context.roomId)))) return error('No such execution.',404);
   }
-  return row ? { job: jobView(row) } : error('No such execution.', 404);
+  return row ? { job: { ...jobView(row), ...(scope ? { runtimeLog: row.runtime_log || '', runtimeLogAt: row.runtime_log_at || null } : {}) } } : error('No such execution.', 404);
 }
 export async function cancelExecution(db, orgId, me, jobId) {
   const found = await readExecution(db, orgId, me, jobId);
@@ -172,16 +172,17 @@ export async function enqueueExecution(db, orgId, me, input, appAction = null) {
     if(input.language!==undefined&&!['javascript','typescript'].includes(input.language))return error('Unsupported execution language.');
     let files;
     try { files = validateExecutionFiles(input.files); } catch (e) { return error(e.message, 400); }
-    const payload = JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}), ...(files?.length?{files}:{}) });
+    const payload = JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}), ...(files?.length?{files}:{}), ...(appAction?{appAction:true}:{}) });
     const baseBytes = new TextEncoder().encode(JSON.stringify({ code: input.code, input: input.input ?? null, ...(input.language==='typescript'?{language:'typescript'}:{}) })).length;
     if (baseBytes > 65536 || new TextEncoder().encode(payload).length > MAX_JOB_BYTES) return error('Execution input is too large.', 413);
     const requestId = input.requestId || id();
     if (typeof requestId !== 'string' || !/^[\w-]{1,80}$/.test(requestId)) return error('Invalid request ID.');
     const previous = await db.prepare('SELECT * FROM hx_gateway_jobs WHERE org_id = ?1 AND created_by = ?2 AND request_id = ?3').bind(orgId, me, requestId).first();
     if (previous) {
-      if(previous.payload !== payload || previous.gateway_id !== gateway.id) return error('Request ID was already used for different input.',409);
       const current=await readExecution(db,orgId,me,previous.id);
-      return current.error?current:success(current);
+      if(current.error)return current;
+      if(previous.payload !== payload || previous.gateway_id !== gateway.id) return error('Request ID was already used for different input.',409);
+      return success(current);
     }
     if (await getMode(db, orgId) === 'harness') {
       const budget = await workspaceBudgetAdmission(db, orgId);
