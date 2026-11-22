@@ -48,7 +48,18 @@ export function validateStateRequest(request) {
 function validRowTarget(params){return typeof params.entityId==='string'&&/^([a-z][a-z0-9_]{0,39})$/.test(params.entityId)&&typeof params.rowId==='string'&&params.rowId.length>0&&params.rowId.length<=200&&typeof params.expectedUpdatedAt==='string'&&params.expectedUpdatedAt.length<=64&&Number.isFinite(Date.parse(params.expectedUpdatedAt));}
 export function createStateBroker(operation,{signal}={}) {
  if(typeof operation!=='function')throw Error('An authorized state transport is required.');
- const seen=new Set();let queue=Promise.resolve();
+ const seen=new Set();let queue=Promise.resolve(),readActive=0;const readQueue=[];
+ const read=async(request,run)=>{
+  if(signal?.aborted)return run();
+  if(readActive>=32)await new Promise(resolve=>{
+   const waiting={resolve:()=>{signal?.removeEventListener('abort',waiting.abort);resolve();}};readQueue.push(waiting);
+   if(signal){waiting.abort=()=>{const index=readQueue.indexOf(waiting);if(index>=0){readQueue.splice(index,1);waiting.resolve();}};signal.addEventListener('abort',waiting.abort,{once:true});}
+  });
+  if(signal?.aborted)return run();
+  readActive++;
+  try{return await run();}
+  finally{readActive--;const waiting=readQueue.shift();if(waiting)waiting.resolve();}
+ };
  return request=>{
   const clean=validateStateRequest(request);
   if(seen.has(clean.id))throw Error('Duplicate state request.');
@@ -63,9 +74,9 @@ export function createStateBroker(operation,{signal}={}) {
     return reply;
    } catch {return {id:clean.id,ok:false,error:'State operation failed.'};}
   };
-  // Table queries are read-only and can use the SDK's bounded concurrency.
-  // Keep checkpoint/state and effectful operations in one order-preserving lane.
-  if(clean.method==='table.query')return run();
+  // Database reads and explicitly bound GET connections use bounded concurrency.
+  // Checkpoints and effectful operations keep one order-preserving lane.
+  if(clean.method==='table.query'||clean.method==='connection.request')return read(clean,run);
   const result=queue.then(run);
   queue=result.catch(()=>{});return result;
  };
