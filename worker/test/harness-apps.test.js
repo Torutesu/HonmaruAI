@@ -3041,6 +3041,7 @@ test('a different current Agent member can explicitly grant their own App connec
 
 test('an App can explicitly share and invoke only a source Agent read-only Remote MCP tool', async()=>{
  const {app,agentId}=await makeDirectAgentApp({access:'people',people:['toru','mika']});
+ await env.DB.prepare("UPDATE hx_agent_profiles SET access='private',people='[]' WHERE org_id=?1 AND agent_id=?2").bind(ORG,agentId).run();
  egressTestEnv={...env,DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
  const gatewayResponse=await send('POST','/gateways',toru,{orgId:ORG,name:'App MCP test Gateway'});
  const registeredGateway=await gatewayResponse.json();
@@ -3052,9 +3053,6 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    (id,org_id,name,endpoint,auth_mode,tools_json,allowed_tools,created_by,created_at,updated_at,egress_gateway_id)
    VALUES(?1,?2,'Knowledge MCP','https://mcp.example.com/mcp','headers',?3,'["lookup"]','9101',?4,?4,?5)`)
    .bind(serverId,ORG,JSON.stringify([{name:'lookup',title:'Look up knowledge',description:'Search approved company knowledge.',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},annotations:{readOnlyHint:true,destructiveHint:false}}]),at,registeredGateway.gateway.id).run();
- const {setAgentRemoteMcpTool}=await import('../src/harness/agentRemoteMcp.js');
- const agentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9101'},serverId,toolName:'lookup',enabled:true});
- expect(agentGrant.error,JSON.stringify(agentGrant)).toBeUndefined();
  const listed=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
  expect(listed.status).toBe(200);
  const payload=await listed.json();
@@ -3064,15 +3062,20 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
  const grant=await send('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
  expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
  const approved=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
- expect((await approved.json()).remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:true}));
+ expect((await approved.json()).remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:true,grantedByYou:true}));
+ const mikaBeforeGrant=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,mika);
+ expect((await mikaBeforeGrant.json()).remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:false,canGrant:true}));
+ const mikaGrant=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
+ expect(mikaGrant.status,JSON.stringify(await mikaGrant.clone().json())).toBe(200);
+ expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_app_remote_mcp_viewer_grants WHERE org_id=?1 AND app_id=?2 AND server_id=?3 AND tool_name=?4').bind(ORG,app.id,serverId,'lookup').first()).toEqual({n:2});
  let replaceGrantDuringCall=false;
  const fetch=vi.fn(async(_url,init)=>{
    const rpc=JSON.parse(init.body);
    if(rpc.method==='notifications/initialized')return new Response(null,{status:202});
    if(rpc.method==='tools/call'&&replaceGrantDuringCall){
      replaceGrantDuringCall=false;
-     await env.DB.prepare(`UPDATE hx_app_remote_mcp_grants SET grant_id='regranted-during-call'
-       WHERE org_id=?1 AND app_id=?2 AND server_id=?3 AND tool_name=?4`).bind(ORG,app.id,serverId,'lookup').run();
+     await env.DB.prepare(`UPDATE hx_app_remote_mcp_viewer_grants SET grant_id='regranted-during-call'
+       WHERE org_id=?1 AND app_id=?2 AND user_github_id='9102' AND server_id=?3 AND tool_name=?4`).bind(ORG,app.id,serverId,'lookup').run();
    }
    const result=rpc.method==='initialize'?{protocolVersion:'2025-06-18'}:{content:[{type:'text',text:'approved knowledge result'}]};
    return new Response(JSON.stringify({jsonrpc:'2.0',id:rpc.id,result}),{headers:{'content-type':'application/json','mcp-session-id':'app-session'}});
@@ -3089,11 +3092,6 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    expect(replaced.status).toBe(403);
    expect(JSON.stringify(await replaced.json())).toContain('access changed during execution');
    expect(fetch).toHaveBeenCalledTimes(6);
-   const mikaAgentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9102'},serverId,toolName:'lookup',enabled:true});
-   expect(mikaAgentGrant.error,JSON.stringify(mikaAgentGrant)).toBeUndefined();
-   const transferred=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
-   expect(transferred.status,JSON.stringify(await transferred.clone().json())).toBe(200);
-   expect(await env.DB.prepare('SELECT owner_github_id AS ownerId FROM hx_app_remote_mcp_grants WHERE org_id=? AND app_id=? AND server_id=? AND tool_name=?').bind(ORG,app.id,serverId,'lookup').first()).toEqual({ownerId:'9102'});
    const revoke=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_revoke',serverId,toolName:'lookup'});
    expect(revoke.status).toBe(200);
    const blocked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'secret'}});

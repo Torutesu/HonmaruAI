@@ -552,6 +552,7 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_tool_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_app_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
+    await env.DB.prepare("DELETE FROM hx_app_remote_mcp_viewer_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_remote_mcp_servers WHERE org_id = ?1 AND id = ?2").bind(orgId, id).run();
     await writeAudit(env, request, who, orgId, "remote_mcp.server_removed", row);
     return json({ removed: true });

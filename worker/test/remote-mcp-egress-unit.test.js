@@ -43,6 +43,17 @@ test("Remote MCP egress Agent authorization is an exact bounded non-secret scope
   })).toThrow(/exact Agent and tool/i);
 });
 
+test("Remote MCP egress App grants are bound to one viewer, App, tool, and grant generation", () => {
+  const authorization = { kind: "app", appId: "app-1", viewerId: "42", toolName: "lookup", grantId: "grant-generation-1" };
+  expect(cleanRemoteMcpEgressRequest({
+    url: "https://mcp.example.org/tools", method: "POST", headers: [], body: "{}", authorization,
+  })).toMatchObject({ authorization });
+  expect(() => cleanRemoteMcpEgressRequest({
+    url: "https://mcp.example.org/tools", method: "POST", headers: [],
+    authorization: { kind: "app", appId: "app-1", viewerId: "42", grantId: "grant-generation-1" },
+  })).toThrow(/exact App, viewer, and tool/i);
+});
+
 test("Remote MCP egress responses keep only bounded protocol headers and body", () => {
   expect(cleanRemoteMcpEgressResponse({
     status: 200,
