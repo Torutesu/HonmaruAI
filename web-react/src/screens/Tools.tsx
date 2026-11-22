@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { Icon, type IconName } from '../components/Icon'
 import { McpConnections } from '../components/McpConnections'
@@ -23,6 +23,46 @@ import { composing, enterKey } from '../utils/keys'
 interface Connector { id: string; label: string; status: string }
 
 type StudioPage = 'apps' | 'ai' | 'teammates' | 'api' | 'emoji' | 'groups' | 'audit' | 'security' | 'sso' | 'dlp' | 'compliance'
+
+type StudioNavItem = { id: StudioPage; label: string; icon: IconName }
+
+function StudioNavigation({ items, page, go, label, t }: {
+  items: StudioNavItem[]; page: StudioPage; go: (page: StudioPage) => void; label: string; t: (value: string) => string
+}) {
+  const navRef = useRef<HTMLElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const update = () => {
+      setCanScrollLeft(nav.scrollLeft > 1)
+      setCanScrollRight(nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1)
+    }
+    update()
+    nav.addEventListener('scroll', update, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(nav)
+    return () => { nav.removeEventListener('scroll', update); observer?.disconnect() }
+  }, [items.length])
+
+  const scroll = (direction: -1 | 1) => navRef.current?.scrollBy({ left: direction * Math.max(180, navRef.current.clientWidth * 0.72), behavior: 'smooth' })
+  return (
+    <div className="studio-nav-frame">
+      {canScrollLeft && <button className="studio-nav-scroll left" type="button" aria-label={t('Scroll tabs left')} onClick={() => scroll(-1)}><Icon name="chevron-left" size={15} /></button>}
+      <nav ref={navRef} className="studio-nav" aria-label={label}>
+        <div className="studio-nav-label"><Icon name="settings" size={13} /> {t('Studio')}</div>
+        {items.map((n) => (
+          <button key={n.id} type="button" data-studio={n.id} className={page === n.id ? 'on' : ''} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
+            <Icon name={n.icon} size={15} /> {n.label}
+          </button>
+        ))}
+      </nav>
+      {canScrollRight && <button className="studio-nav-scroll right" type="button" aria-label={t('Scroll tabs right')} onClick={() => scroll(1)}><Icon name="chevron-right" size={15} /></button>}
+    </div>
+  )
+}
 
 const money = (value: number) => value === 0 ? '$0' : value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 
@@ -1178,7 +1218,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
     </Dialog>
   )
 
-  const NAV: Array<{ id: StudioPage; label: string; icon: IconName }> = [
+  const NAV: StudioNavItem[] = [
     { id: 'apps', label: t('Apps'), icon: 'grid' },
     { id: 'ai', label: t('AI'), icon: 'sparkle' },
     { id: 'teammates', label: t('AI teammates'), icon: 'zap' },
@@ -1200,14 +1240,7 @@ export const Tools: React.FC<Props> = ({ httpBase, orgId, sessionToken, onClose 
       </div>
       <div className="screen-body">
         <div className="studio">
-          <nav className="studio-nav" aria-label={t('Tools')}>
-            <div className="studio-nav-label"><Icon name="settings" size={13} /> {t('Studio')}</div>
-            {NAV.map((n) => (
-              <button key={n.id} type="button" data-studio={n.id} className={page === n.id ? 'on' : ''} aria-current={page === n.id ? 'page' : undefined} onClick={() => go(n.id)}>
-                <Icon name={n.icon} size={15} /> {n.label}
-              </button>
-            ))}
-          </nav>
+          <StudioNavigation items={NAV} page={page} go={go} label={t('Tools')} t={t} />
           <main className="studio-main">
             {page === 'apps' && appsPage}
             {page === 'ai' && aiPage}
