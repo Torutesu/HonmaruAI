@@ -3065,9 +3065,15 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
  expect(grant.status,JSON.stringify(await grant.clone().json())).toBe(200);
  const approved=await get(`/apps/${app.id}/connections?orgId=${encodeURIComponent(ORG)}`,toru);
  expect((await approved.json()).remoteMcp.tools).toContainEqual(expect.objectContaining({serverId,toolName:'lookup',granted:true}));
+ let replaceGrantDuringCall=false;
  const fetch=vi.fn(async(_url,init)=>{
    const rpc=JSON.parse(init.body);
    if(rpc.method==='notifications/initialized')return new Response(null,{status:202});
+   if(rpc.method==='tools/call'&&replaceGrantDuringCall){
+     replaceGrantDuringCall=false;
+     await env.DB.prepare(`UPDATE hx_app_remote_mcp_grants SET grant_id='regranted-during-call'
+       WHERE org_id=?1 AND app_id=?2 AND server_id=?3 AND tool_name=?4`).bind(ORG,app.id,serverId,'lookup').run();
+   }
    const result=rpc.method==='initialize'?{protocolVersion:'2025-06-18'}:{content:[{type:'text',text:'approved knowledge result'}]};
    return new Response(JSON.stringify({jsonrpc:'2.0',id:rpc.id,result}),{headers:{'content-type':'application/json','mcp-session-id':'app-session'}});
  });
@@ -3078,6 +3084,11 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    expect(invoked.status,JSON.stringify(await invoked.clone().json())).toBe(200);
    expect(await invoked.json()).toMatchObject({data:{content:[{text:'approved knowledge result'}]}});
    expect(fetch).toHaveBeenCalledTimes(3);
+   replaceGrantDuringCall=true;
+   const replaced=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'access changed during call'}});
+   expect(replaced.status).toBe(403);
+   expect(JSON.stringify(await replaced.json())).toContain('access changed during execution');
+   expect(fetch).toHaveBeenCalledTimes(6);
    const mikaAgentGrant=await setAgentRemoteMcpTool(env,{orgId:ORG,agentId,session:{github_id:'9102'},serverId,toolName:'lookup',enabled:true});
    expect(mikaAgentGrant.error,JSON.stringify(mikaAgentGrant)).toBeUndefined();
    const transferred=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_grant',serverId,toolName:'lookup'});
@@ -3087,7 +3098,7 @@ test('an App can explicitly share and invoke only a source Agent read-only Remot
    expect(revoke.status).toBe(200);
    const blocked=await send('POST',`/apps/${app.id}/connections`,mika,{orgId:ORG,action:'remote_mcp_request',serverId,toolName:'lookup',args:{query:'secret'}});
    expect(blocked.status).toBe(403);
-   expect(fetch).toHaveBeenCalledTimes(3);
+   expect(fetch).toHaveBeenCalledTimes(6);
  } finally {stopRemoteMcpGateway();vi.unstubAllGlobals();}
 });
 

@@ -4827,3 +4827,9 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Fixed `/connectors/github` so a repo-shaped workspace ID no longer grants integration-admin authority by itself. Replacement and disconnect now use the central `workspace.integrations` authorization check for repo and ordinary workspaces alike.
 - Added a regression with GitHub Admin, Maintainer and Engineer roles: Maintainer/Engineer disconnect attempts must return 403 and preserve the existing connector; Admin disconnect succeeds. The test failed before the fix (Maintainer received 200) and passed after it. Focused `github-workspace.test.js`: **9/9 passed**.
 - Full Worker suite: **3,723 tests across 324 files passed**. Exact-head CI, merge/deploy, authenticated production acceptance and Kylon comparison remain pending. This candidate adds no schema or paid service and does not change Simple mode.
+
+### 2026-11-23 — Fence App Remote MCP grant replacement
+
+- App Remote MCP grants now carry a unique generation ID. If a grant is revoked and recreated while a Gateway call is running, the post-call check sees the generation change and discards the result. Existing rows use their creation timestamp until re-granted; the schema and deploy migration both include the new column. Workspace and source-Agent authorization remain required, and Simple mode is unchanged.
+- The in-flight replacement regression fails against the previous implementation (HTTP 200 instead of the required 403). `harness-apps.test.js` plus `migration.test.js` passed **215/215**; the full Worker suite passed **3,727 tests across 324 files**. `node --check`, parity inventory validation and `git diff --check` passed.
+- Exact-head CI, production deployment, authenticated multi-user acceptance and direct Kylon comparison remain pending. No new service or paid dependency was added.
