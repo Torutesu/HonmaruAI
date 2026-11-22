@@ -3,6 +3,20 @@ const nowIso=()=>new Date().toISOString();
 import {announceCards} from '../announce.js';
 import {notifyCard} from '../notify.js';
 
+function approvalRequestMatches(row,assignment,requesterLogin,{sourceAgentId,targetAgentId,operationId,brief,messageBody}) {
+  return row && row.assignmentId===assignment.id && Number(row.sourceGeneration)===Number(assignment.generation)
+    && row.sourceAgentId===sourceAgentId && row.targetAgentId===targetAgentId && row.operationId===operationId
+    && row.brief===brief && row.messageBody===messageBody && row.requesterId===String(assignment.actor_id)
+    && row.requesterLogin===requesterLogin && row.requesterMembership===assignment.actor_membership
+    && row.roomChannel===assignment.channel && row.threadId===assignment.thread_id
+    && row.sourceMessageId===assignment.source_message_id && row.sourceHash===assignment.source_hash;
+}
+
+const approvalReplayColumns=`id,card_id AS cardId,status,assignment_id AS assignmentId,source_generation AS sourceGeneration,
+  source_agent_id AS sourceAgentId,target_agent_id AS targetAgentId,room_channel AS roomChannel,thread_id AS threadId,
+  source_message_id AS sourceMessageId,source_hash AS sourceHash,requester_id AS requesterId,requester_login AS requesterLogin,
+  requester_membership AS requesterMembership,operation_id AS operationId,brief,message_body AS messageBody`;
+
 // A missing static peer grant creates a private, idempotent request. This
 // function never writes a handoff message or dispatch row.
 export async function requestAgentWakeApproval(env,assignment,{requesterLogin,targetName,sourceAgentId,targetAgentId,operationId,brief,messageBody}) {
@@ -12,12 +26,10 @@ export async function requestAgentWakeApproval(env,assignment,{requesterLogin,ta
     return {error:'Invalid Agent wake request.',status:400};
   requesterLogin=String(requesterLogin||'');
   if(!requesterLogin)return {error:'Approval requester is unavailable.',status:403};
-  const existing=await db.prepare(`SELECT id,card_id AS cardId,status,source_agent_id AS sourceAgentId,target_agent_id AS targetAgentId,
-      operation_id AS operationId,brief,message_body AS messageBody FROM hx_agent_wake_approvals
+  const existing=await db.prepare(`SELECT ${approvalReplayColumns} FROM hx_agent_wake_approvals
     WHERE org_id=?1 AND assignment_id=?2 AND source_generation=?3`).bind(assignment.org_id,assignment.id,assignment.generation).first();
   if(existing) {
-    if(existing.sourceAgentId!==sourceAgentId||existing.targetAgentId!==targetAgentId||existing.operationId!==operationId
-      ||existing.brief!==brief||existing.messageBody!==messageBody)return {error:'This assignment generation already has a different approval request.',status:409};
+    if(!approvalRequestMatches(existing,assignment,requesterLogin,{sourceAgentId,targetAgentId,operationId,brief,messageBody}))return {error:'This assignment generation already has a different approval request.',status:409};
     if(existing.status==='pending' && await db.prepare(`SELECT 1 FROM hx_agent_wake_approvals WHERE org_id=?1 AND id=?2 AND request_expires_at<=?3`).bind(assignment.org_id,existing.id,nowIso()).first()) {
       await expireAgentWakeApprovals(env,nowIso());
       return {approval:{...existing,status:'expired'},created:false};
@@ -44,8 +56,10 @@ export async function requestAgentWakeApproval(env,assignment,{requesterLogin,ta
       .bind(crypto.randomUUID(),assignment.org_id,cardId,'agent:'+sourceAgentId,JSON.stringify(card),createdAt,id),
   ]);
   if(!saved[0].meta?.changes){
-    const replay=await db.prepare(`SELECT id,card_id AS cardId,status FROM hx_agent_wake_approvals WHERE org_id=?1 AND assignment_id=?2 AND source_generation=?3`).bind(assignment.org_id,assignment.id,assignment.generation).first();
-    return replay?{approval:replay,created:false}:{error:'Assignment changed before approval was requested.',status:409};
+    const replay=await db.prepare(`SELECT ${approvalReplayColumns} FROM hx_agent_wake_approvals WHERE org_id=?1 AND assignment_id=?2 AND source_generation=?3`).bind(assignment.org_id,assignment.id,assignment.generation).first();
+    if(!replay)return {error:'Assignment changed before approval was requested.',status:409};
+    if(!approvalRequestMatches(replay,assignment,requesterLogin,{sourceAgentId,targetAgentId,operationId,brief,messageBody}))return {error:'This assignment generation already has a different approval request.',status:409};
+    return {approval:replay,created:false};
   }
   await announceCards(env,assignment.org_id,[card]).catch(()=>{});
   await notifyCard(env,{card,kind:'created',excludeLogin:null,orgId:assignment.org_id}).catch(()=>{});

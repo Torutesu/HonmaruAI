@@ -119,18 +119,19 @@ export async function mayWriteTableRecords(db, orgId, tableId, userId) {
   return true;
 }
 
-// Recheck a rendered app and its primary table together after reading rows.
-// Every app linked to the table must remain visible, as with mayUseTable; a
-// single SQL statement prevents an ACL change between individual checks.
+// Recheck a rendered App and one of its tables after reading rows. The table
+// must be its primary table or an explicitly linked entity, and all Apps
+// linked to that table must remain visible under the same query snapshot.
 export async function mayReadAppRows(db, orgId, appId, tableId, userId) {
   if (!userId || !tableId) return false;
   const roomAllowed = policy => `EXISTS(SELECT 1 FROM businesses rb WHERE rb.org_id=?1 AND 'b:'||rb.slug=${policy}.room_channel AND (rb.private=0 OR EXISTS(SELECT 1 FROM conversation_members cm JOIN users cu ON cu.login=cm.login WHERE cm.org_id=?1 AND cm.channel=${policy}.room_channel AND cu.github_id=?4)))`;
   const row = await db.prepare(`SELECT 1 AS allowed FROM hx_apps target
-    JOIN hx_tables t ON t.org_id=target.org_id AND t.id=target.table_id
+    JOIN hx_tables t ON t.org_id=target.org_id AND t.id=?3
     JOIN memberships m ON m.org_id=target.org_id AND m.user_github_id=?4
     LEFT JOIN hx_app_access policy ON policy.org_id=target.org_id AND policy.app_id=target.id
     LEFT JOIN hx_app_person_access personal ON personal.org_id=target.org_id AND personal.app_id=target.id AND personal.user_github_id=?4
-    WHERE target.org_id=?1 AND target.id=?2 AND target.deleted_at IS NULL AND target.table_id=?3
+    WHERE target.org_id=?1 AND target.id=?2 AND target.deleted_at IS NULL
+      AND (target.table_id=?3 OR EXISTS(SELECT 1 FROM hx_app_entities entity WHERE entity.org_id=target.org_id AND entity.app_id=target.id AND entity.table_id=?3))
       AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM workspace_tombstones d WHERE d.org_id=?1)
