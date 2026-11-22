@@ -14,6 +14,7 @@ import { member, json } from './routes.js';
 import { enforceSubject } from '../ratelimit.js';
 import { allowed } from '../permissions.js';
 import { aad, isSealed, openField } from '../secrets.js';
+import { mayUseApp } from './resourceAccess.js';
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
@@ -31,7 +32,7 @@ async function failBrowserJobAfterAuthorizationLoss(db, { jobId, gatewayId, leas
 }
 
 
-export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|browser|browser-action|browser-frame)|remote-mcp\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish)))\/?$/.test(pathname);
+export const isGatewayNodeRoute = pathname => /^\/gateways\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish|state|mcp|progress|log|browser|browser-action|browser-frame)|remote-mcp\/(?:claim|jobs\/[^/]+\/(?:heartbeat|finish)))\/?$/.test(pathname);
 
 const ACP_READ_ONLY_TOOLS = new Set(['list_apps','read_app','list_tables','query_rows','list_workflows','list_followups']);
 const acpReadTools = () => HARNESS_TOOLS.filter(tool => ACP_READ_ONLY_TOOLS.has(tool.name))
@@ -244,6 +245,30 @@ export async function handleGateways(request, env, url, input) {
           AND COALESCE(json_extract(payload,'$.acp'),0)=1`)
         .bind(parts[2], g.id, leaseHash, at, JSON.stringify(progress)).run();
       return changed.meta?.changes ? json({ ok: true }) : failure('ACP execution is no longer authorized.', 409);
+    }
+    if (parts[3] === 'log') {
+      if (request.method !== 'POST') return failure('Method not allowed.', 405);
+      const text = typeof input.text === 'string'
+        ? input.text.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').slice(-4000)
+        : '';
+      if (!text || !Number.isSafeInteger(input.sequence) || input.sequence < 1 || new TextEncoder().encode(text).length > 16000)
+        return failure('Invalid app runtime log update.', 400);
+      const current = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,created_by,org_id FROM hx_gateway_jobs WHERE ${guard}`)
+        .bind(parts[2],g.id,leaseHash,at).first();
+      let payload;
+      try { payload=JSON.parse(current?.payload||'{}'); } catch { return failure('Execution payload is invalid.',400); }
+      const appAction = current && await db.prepare('SELECT app_id FROM hx_app_action_jobs WHERE org_id=?1 AND job_id=?2 AND created_by=?3')
+        .bind(current.org_id,parts[2],current.created_by).first();
+      if (!current || payload.appAction !== true || !appAction ||
+          !(await allowed(db,current.org_id,current.created_by,'harness.build')) ||
+          !(await mayUseApp(db,current.org_id,appAction.app_id,current.created_by)))
+        return failure('App execution is no longer authorized.',409);
+      const changed = await db.prepare(`${workflowProgramAccessCTE('?4')} UPDATE hx_gateway_jobs SET runtime_log=?5,runtime_log_seq=?6,runtime_log_at=?7
+        WHERE ${guard} AND status='running' AND runtime_log_seq<?6
+          AND COALESCE(json_extract(payload,'$.appAction'),0)=1
+          AND EXISTS(SELECT 1 FROM hx_app_action_jobs j WHERE j.org_id=hx_gateway_jobs.org_id AND j.job_id=hx_gateway_jobs.id AND j.created_by=hx_gateway_jobs.created_by)`)
+        .bind(parts[2],g.id,leaseHash,at,text,input.sequence,at).run();
+      return changed.meta?.changes ? json({ ok: true }) : failure('App execution is no longer authorized.',409);
     }
     if (parts[3] === 'browser') {
       const job = await db.prepare(`${workflowProgramAccessCTE('?4')} SELECT payload,org_id,created_by,gateway_id FROM hx_gateway_jobs WHERE ${guard}`)

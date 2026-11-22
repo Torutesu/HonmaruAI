@@ -460,3 +460,19 @@ test('each virtual-file run removes its isolated tmpfs after success, failure, a
   assert.ok(taskJson.includes('"files":[{"path":"input.txt","base64":"eA=="}]'));
  }
 });
+
+test('isolated runner streams bounded UTF-8 output while preserving final output',async()=>{
+ const emitted=[];let activeChild;
+ const spawnProcess=(_binary,args)=>{
+  if(args[0]==='delete') throw Error('delete is managed through controlProcess');
+  const child=new EventEmitter();activeChild=child;child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();
+  child.kill=()=>{};
+  child.stdin.resume();
+  child.stdin.on('end',()=>setImmediate(()=>{child.stdout.write(Buffer.from([0xe3,0x81]));child.stdout.write(Buffer.from([0x82,0x0a]));child.stderr.write('warning');child.emit('close',0)}));
+  return child;
+ };
+ const controlProcess=async(_binary,args)=>{if(args[0]==='delete')activeChild.emit('close',0)};
+ const result=await runIsolated({code:'return 1'},{spawnProcess,controlProcess,onOutput:event=>emitted.push(event)});
+ assert.equal(result.status,'succeeded');
+ assert.deepEqual(emitted,[{stream:'stdout',text:'あ\n'},{stream:'stderr',text:'warning'},{flush:true}]);
+});

@@ -115,6 +115,34 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   if (signal?.aborted) abort();
   let checking = false, leaseLost = false, refused = false, browserAuthorizationLost = false, lastHeartbeatAt = Date.now();
   let controlAuthorizationLost = false;
+  let runtimeLogSequence = 0, runtimeLogText = '', runtimeLogAvailable = job.payload?.appAction === true;
+  let runtimeLogTail = Promise.resolve(), runtimeLogTimer = null, runtimeLogDirty = false, runtimeLogLastSentAt = 0;
+  const sendRuntimeLog = () => {
+    if (!runtimeLogDirty || !runtimeLogAvailable) return runtimeLogTail;
+    runtimeLogDirty = false;
+    const sequence = ++runtimeLogSequence;
+    const text = runtimeLogText;
+    runtimeLogLastSentAt = Date.now();
+    runtimeLogTail = runtimeLogTail.then(() => call(`jobs/${job.id}/log`,{lease:job.lease,sequence,text},{signal:cancel.signal}))
+      .catch(() => { runtimeLogAvailable = false; });
+    return runtimeLogTail;
+  };
+  const reportAppOutput = runtimeLogAvailable ? event => {
+    if (!runtimeLogAvailable) return runtimeLogTail;
+    if (event?.flush === true) {
+      clearTimeout(runtimeLogTimer); runtimeLogTimer = null;
+      return sendRuntimeLog();
+    }
+    const {stream,text}=event||{};
+    if (!['stdout','stderr'].includes(stream) || typeof text !== 'string' || !text) return runtimeLogTail;
+    runtimeLogText = `${runtimeLogText}${stream === 'stderr' ? '[stderr] ' : ''}${text}`.slice(-3000);
+    runtimeLogDirty = true;
+    if (!runtimeLogTimer) {
+      const delay = Math.max(0, 250 - (Date.now() - runtimeLogLastSentAt));
+      runtimeLogTimer = setTimeout(() => { runtimeLogTimer = null; void sendRuntimeLog(); }, delay);
+    }
+    return Promise.resolve();
+  } : undefined;
   const runFencedBrowserAction = async (authorizationPath, action, options, parentSignal = cancel.signal, controlAuthorization = null) => {
     const monitorStop = new AbortController();
     const actionStop = new AbortController();
@@ -248,7 +276,7 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
         })
         : job.workflow===true
           ? await runWorkflow(job.payload,{...options,stateOperation:(operation,params,{signal})=>call(`jobs/${job.id}/state`,{lease:job.lease,operation,params},{signal})})
-          : await run(job.payload,{...options,...(job.environment?{environment:job.environment}:{})});
+          : await run(job.payload,{...options,...(job.environment?{environment:job.environment}:{}),...(reportAppOutput?{onOutput:reportAppOutput}:{})});
     }
     catch { result = { status: 'failed', stdout: '', stderr: 'The local runtime could not start this execution.', exitCode: null }; }
     controlStop.abort();
