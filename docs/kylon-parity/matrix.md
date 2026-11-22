@@ -338,8 +338,8 @@ Kylonの11月14日changelogで「voice input in every text field」を確認。F
 
 KylonのHighLevel標準接続を、公式OpenAI互換MCP endpointを使うHarnessプリセットとして追加。既存の per-member OAuth、Gateway、Agent tool grant、Workflow承認を再利用し、Simple modeは変更しない。Harness Apps 59テストとproduction buildは成功。実アカウントでのOAuth、ツール実行、書き込み承認、CIと本番反映は未確認のためpartial。HighLevelの公開機能セット全体をHonmaru専用UIで再実装したものではなく、提供MCP toolsの範囲に依存する。
 
-### 2026-11-20 — Workflow TypeScript diagnostics and transpile preview
+### 2026-11-22 — Workflow TypeScript diagnostics and transpile preview
 
-KY-132としてWorkflowのコード編集に、遅延ロードされた既存TypeScript compilerによる構文・変換診断を追加。入力後300msで解析し、構文エラーは行/列付きで表示、正常時は折り畳み式のJavaScript変換プレビューを表示する。ブラウザではコードを評価しない。意味上の型検査は行わないと明示。48KBを超える場合はコンパイルを止める。既存`typescript`依存だけを使い新規依存・課金なし。focused 3/3、Web全体277/277ファイル・2,110テスト、型チェック、本番ビルド成功。compiler chunkは3.45MB (gzip 970KB) でコード編集時だけ遅延ロードされる。マージ後main CI、ブラウザE2E、本番配信、Kylon実画面比較は未完了。
+KY-132としてWorkflowのコード編集に、遅延ロードされた既存TypeScript compilerによる構文・変換診断を追加。入力後300msで解析し、構文エラーは行/列付きで表示、正常時は折り畳み式のJavaScript変換プレビューを表示する。ブラウザではコードを評価しない。意味上の型検査は行わないと明示。48KBを超える場合はコンパイルを止める。既存`typescript`依存だけを使い新規依存・課金なし。focused 3/3、Web全体277/277ファイル・2,110テスト、型チェック、本番ビルドに加えて、isolated local E2E全体が成功し、ブラウザで編集・保存・node state transportによる実行まで確認。Kylonの認証済み実画面との比較と本番配信の確認は未完了。
 
 | KY-133 | ChatGPTからHonmaru WorkspaceをKylonのChatGPT連携相当で参照・操作 | 一部 | P1 | [mcpOAuth.js](../../worker/src/mcpOAuth.js), [mcp.js](../../worker/src/mcp.js) | ChatGPT向けDCR、PKCE OAuth、tool別scope表示、Workspace同意と失効を検証。Worker統合テスト・CI・本番反映・実ChatGPT/Kylon同一タスク比較は確認中。 |

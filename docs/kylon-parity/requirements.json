@@ -1868,7 +1868,7 @@
         "reviewedAt": "2026-11-20",
         "implementedScope": "WorkflowProgramEditor lazily loads the already-installed TypeScript compiler after a 300ms debounce; shows syntax diagnostics with source location; displays a collapsed read-only transpiled JavaScript preview without evaluating it; explicitly labels the result as not a type check; skips compilation above the existing 48KB limit. E2E fixture covers a malformed source, correction, and preview before saving/running.",
         "verification": "Focused component tests 3/3 passed; full web-react suite 277 files / 2,110 tests passed; TypeScript noEmit and Vite production build passed. Compiler chunk is lazy: 3.45MB uncompressed / 970KB gzip; it is not part of the initial bundle.",
-        "remaining": "PR exact-head CI, main CI, production deployment and browser-level E2E acceptance remain pending. Kylon live editor comparison and type-level diagnostics are not claimed; compiler-based semantic typechecking is outside this slice."
+        "remaining": "The full isolated local E2E run now passes, including the browser flow that opens the editor, saves the TypeScript source, and completes execution through node state transport. Production deployment evidence and authenticated Kylon live editor comparison remain unverified. Semantic type diagnostics are outside this slice."
       }
     },
     {
