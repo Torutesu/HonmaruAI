@@ -64,6 +64,22 @@ test('skips local compilation for source above the runtime byte limit', async ()
   act(() => tree.unmount())
 })
 
+test('binds read sources from multiple Apps and disambiguates identical entity keys',async()=>{
+ const sources:any=[
+  {app:{id:'app-a',name:'Tasks'},entities:[{key:'records',table:{id:'table-a',name:'Task records',columns:[]}}]},
+  {app:{id:'app-b',name:'People'},entities:[{key:'records',table:{id:'table-b',name:'People records',columns:[]}}]},
+ ]
+ let tree!:ReturnType<typeof create>,saved:Step|undefined
+ function Harness(){const [step,setStep]=useState({type:'code',code:'import {table} from "@honmaru/workflow-sdk";',gatewayId:'node-1'} as Step);return <WorkflowProgramEditor api={makeApi()} step={step} onChange={next=>{saved=next;setStep(next)}} sourceApps={sources}/>}
+ await act(async()=>{tree=create(<Harness/>)});await settleCompiler()
+ await act(async()=>{tree.root.findByProps({'aria-label':'Include entity: Tasks · Task records'}).props.onChange({target:{checked:true}})})
+ await act(async()=>{tree.root.findByProps({'aria-label':'Include entity: People · People records'}).props.onChange({target:{checked:true}})})
+ expect(saved?.sourceTables).toEqual(expect.arrayContaining([{appId:'app-a',entityId:'records',tableId:'table-a'},{appId:'app-b',entityId:'records',tableId:'table-b'}]))
+ expect(tree.root.findByProps({'aria-label':'Include entity: Tasks · Task records'}).props.checked).toBe(true)
+ expect(tree.root.findByProps({'aria-label':'Include entity: People · People records'}).props.checked).toBe(true)
+ act(()=>tree.unmount())
+})
+
 test('lets a Workflow explicitly bind and enable writes for an App connection',async()=>{
  const step=makeStep('import {connection} from "@honmaru/workflow-sdk";')
  const api={...makeApi(),appConnections:vi.fn().mockResolvedValue({connections:[

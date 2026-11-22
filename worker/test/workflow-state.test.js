@@ -258,6 +258,22 @@ test('activation state resolves identity privately and requires both live leases
  await env.DB.prepare("UPDATE hx_gateway_jobs SET status='cancelled' WHERE id='state-job'").run();
  expect(await call('state.set',{state:{bad:1},expectedRevision:1})).toEqual({saved:false});
 });
+test('table queries select a saved App binding when entity keys overlap across Apps',async()=>{
+ await bindActivation();
+ for(const [appId,tableId] of [['read-app-a','read-table-a'],['read-app-b','read-table-b']]){
+  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES(?1,'state-org',?2,'[]','owner','now','now')").bind(tableId,tableId).run();
+  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES(?1,'state-org',?2,?3,'{}','owner','now','now')").bind(appId,appId,tableId).run();
+ }
+ const definition={id:'state-workflow',createdBy:'owner',definitionRevision:1,trigger:{type:'manual'},steps:[{type:'code',gatewayId:'state-gateway',sourceTables:[
+  {appId:'read-app-a',entityId:'primary',tableId:'read-table-a'},
+  {appId:'read-app-b',entityId:'primary',tableId:'read-table-b'},
+ ]}]};
+ await env.DB.prepare('UPDATE hx_workflow_run_definitions SET definition=?1 WHERE org_id=?2 AND run_id=?3').bind(JSON.stringify(definition),'state-org','state-run').run();
+ const call=(params)=>workflowActivationState(env.DB,activation,'table.query',params,2000);
+ expect(await call({appId:'read-app-b',entityId:'primary',pageSize:10})).toMatchObject({rows:[],complete:true,cursor:null});
+ expect(await call({entityId:'primary',pageSize:10})).toMatchObject({error:'Choose an explicitly authorized App and entity.',status:400});
+ expect(await call({appId:'outside-app',entityId:'primary',pageSize:10})).toMatchObject({error:'The workflow source is no longer accessible.',status:404});
+});
 test('gateway revocation and checkpoint reassignment fence activation access in D1',async()=>{
  await bindActivation();
  await env.DB.prepare("UPDATE hx_gateways SET revoked_at=1500 WHERE id='state-gateway'").run();

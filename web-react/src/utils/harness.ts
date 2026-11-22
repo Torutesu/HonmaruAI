@@ -79,7 +79,7 @@ export type StepType = 'post' | 'agent' | 'connection' | 'add_row' | 'update_row
 export type ConditionScalar = string | number | boolean | null
 export type WorkflowCondition = {all:WorkflowCondition[]} | {any:WorkflowCondition[]} | {not:WorkflowCondition} | {path:string[];op:'eq'|'neq'|'gt'|'gte'|'lt'|'lte'|'contains'|'in'|'exists';value:ConditionScalar|ConditionScalar[]}
 export interface Step {
-  code?: string; gatewayId?: string; sourceAppId?: string; sourceEntityId?: string; sourceTableId?: string; sourceTables?: Array<{entityId:string;tableId:string;write?:boolean;mutate?:boolean}>; sourceAgents?:string[]; sourceConnections?:Array<{appId:string;name:string;ownerId?:string;version?:number;method?:string;write?:boolean}>
+  code?: string; gatewayId?: string; sourceAppId?: string; sourceEntityId?: string; sourceTableId?: string; sourceTables?: Array<{appId?:string;entityId:string;tableId:string;write?:boolean;mutate?:boolean}>; sourceAgents?:string[]; sourceConnections?:Array<{appId:string;name:string;ownerId?:string;version?:number;method?:string;write?:boolean}>
   when?: WorkflowCondition
   type: StepType
   channel?: string; text?: string; agentId?: string; prompt?: string; source?: 'notion'|'github'|'remote_mcp'; action?: 'search'; query?: string; serverId?:string; connectionOwnerId?:string; toolName?:string; args?:Record<string,unknown>; tableId?: string; rowId?: string

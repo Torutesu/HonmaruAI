@@ -860,9 +860,9 @@ test('program and form drafts survive format switches and save whole source',asy
  await act(async()=>{tree.root.findByProps({'aria-label':'Execution node'}).props.onChange({target:{value:'mini'}})});
  await act(async()=>{tree.root.findByProps({'aria-label':'App/Table source'}).props.onChange({target:{value:'source-app'}})});
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,0))});
- expect(tree.root.findByProps({'aria-label':'Include entity: Details'}).props.checked).toBe(false);
- await act(async()=>{tree.root.findByProps({'aria-label':'Include entity: Details'}).props.onChange({target:{checked:true}})});
- await act(async()=>{tree.root.findByProps({'aria-label':'Allow row creation: Details'}).props.onChange({target:{checked:true}})});
+ expect(tree.root.findByProps({'aria-label':'Include entity: Source App · Details'}).props.checked).toBe(false);
+ await act(async()=>{tree.root.findByProps({'aria-label':'Include entity: Source App · Details'}).props.onChange({target:{checked:true}})});
+ await act(async()=>{tree.root.findByProps({'aria-label':'Allow row creation: Source App · Details'}).props.onChange({target:{checked:true}})});
  await act(async()=>{format('form')});
  expect(tree.root.findByProps({'aria-label':'Text'}).props.value).toBe('Keep this form');
  await act(async()=>{format('code')});

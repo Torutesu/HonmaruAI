@@ -11,7 +11,7 @@ import {appConnectionsForViewer,invokeAppConnection} from './appConnectionGrants
 export async function workflowActivationState(db,activation,method,params,at=Date.now(),env=null) {
  activationScope(activation);
  if(!activation)throw Error('An authenticated activation is required.');
- const keys=method==='agent.invoke'?['agentId','prompt','schema','tier']:method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['where','q','pageSize','cursor','entityId']:method==='table.insert'?['entityId','values']:method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['entityId','rowId','expectedUpdatedAt']:method==='connection.request'?['appId','name','query']:method==='connection.stageWrite'?['appId','name','body','operationId']:null;
+ const keys=method==='agent.invoke'?['agentId','prompt','schema','tier']:method==='state.get'?['view','includeCurrentRun']:method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:method==='table.query'?['appId','where','q','pageSize','cursor','entityId']:method==='table.insert'?['appId','entityId','values']:method==='table.update'?['appId','entityId','rowId','values','expectedUpdatedAt']:method==='table.delete'?['appId','entityId','rowId','expectedUpdatedAt']:method==='connection.request'?['appId','name','query']:method==='connection.stageWrite'?['appId','name','body','operationId']:null;
  if(!keys||!params||typeof params!=='object'||Array.isArray(params)||Object.keys(params).some(key=>!keys.includes(key)))return {error:'Invalid state operation.',status:400};
  const binding=await db.prepare(`SELECT a.org_id,a.run_id,a.node_id,a.node_owner,a.node_attempt,d.definition,r.workflow_id FROM hx_workflow_activations a
  JOIN hx_gateway_jobs j ON j.org_id=a.org_id AND j.id=a.job_id
@@ -53,10 +53,12 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
   try{definition=JSON.parse(binding.definition)}catch{return {error:'The saved Workflow definition is unavailable.',status:409};}
   const step=definition.steps?.[0];
   const sources=workflowProgramSources(step);
-  if(definition.id!==binding.workflow_id||step?.type!=='code'||!step.sourceAppId||!sources.length)return {error:'This program has no explicitly authorized App/Table source.',status:403};
+  if(definition.id!==binding.workflow_id||step?.type!=='code'||!sources.length)return {error:'This program has no explicitly authorized App/Table source.',status:403};
   const entityId=params.entityId??(sources.length===1?sources[0].entityId:null);
   if(typeof entityId!=='string')return {error:'Choose an explicitly authorized App entity.',status:400};
-  const source=sources.find(item=>item.entityId===entityId);
+  const matches=sources.filter(item=>item.entityId===entityId&&(params.appId===undefined||item.appId===params.appId));
+  if(matches.length>1)return {error:'Choose an explicitly authorized App and entity.',status:400};
+  const source=matches[0];
   if(!source)return {error:'The workflow source is no longer accessible.',status:404};
   if(method==='table.insert'||method==='table.update'||method==='table.delete'){
    const mutate=method==='table.update'||method==='table.delete';
@@ -64,10 +66,10 @@ export async function workflowActivationState(db,activation,method,params,at=Dat
    if(!mutate&&source.write!==true)return {error:'Row creation is not enabled for this App entity.',status:403};
    if((method==='table.insert'||method==='table.update')&&(!params.values||typeof params.values!=='object'||Array.isArray(params.values)))return {error:'Invalid row values.',status:400};
    if(mutate&&(typeof params.rowId!=='string'||!params.rowId||params.rowId.length>200||typeof params.expectedUpdatedAt!=='string'||params.expectedUpdatedAt.length>64||!Number.isFinite(Date.parse(params.expectedUpdatedAt))))return {error:'Reload the row before updating or deleting it.',status:400};
-   if(!(await mayEditApp(db,binding.org_id,step.sourceAppId,definition.createdBy))||!(await mayEditTable(db,binding.org_id,source.tableId,definition.createdBy)))return {error:'The workflow creator no longer has edit access to this App entity.',status:403};
+   if(!(await mayEditApp(db,binding.org_id,source.appId,definition.createdBy))||!(await mayEditTable(db,binding.org_id,source.tableId,definition.createdBy)))return {error:'The workflow creator no longer has edit access to this App entity.',status:403};
    return {staged:true};
   }
-  try{return await queryWorkflowTablePage(db,{orgId:binding.org_id,appId:step.sourceAppId,entityId:source.entityId,tableId:source.tableId,viewerId:definition.createdBy},params,at);}
+  try{return await queryWorkflowTablePage(db,{orgId:binding.org_id,appId:source.appId,entityId:source.entityId,tableId:source.tableId,viewerId:definition.createdBy},params,at);}
   catch(error){if(error?.status===400)return {error:'Invalid App/Table query or cursor.',status:400};throw error;}
  }
  // Public SDK writes are final commits unless the caller explicitly selects

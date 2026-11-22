@@ -276,13 +276,12 @@ async function validProgramTableSource(db,orgId,step,viewerId) {
   const sources=workflowProgramSources(step);
   const hasSource=Boolean(step?.sourceAppId||step?.sourceEntityId||step?.sourceTableId||step?.sourceTables!==undefined);
   if(!hasSource)return true;
-  if(!step.sourceAppId||!sources.length||sources.length>20
-    ||new Set(sources.map(source=>source.entityId)).size!==sources.length
-    ||sources.some(source=>!source.entityId||!source.tableId))return false;
-  if(!await mayUseApp(db,orgId,step.sourceAppId,viewerId))return false;
+  if(!sources.length||sources.length>20
+    ||new Set(sources.map(source=>`${source.appId}\0${source.entityId}`)).size!==sources.length
+    ||sources.some(source=>!source.appId||!source.entityId||!source.tableId))return false;
   for(const source of sources){
-    const mapped=await appEntityTable(db,orgId,step.sourceAppId,source.entityId);
-    if(mapped!==source.tableId||!await getTable(db,orgId,source.tableId)||!await mayUseTable(db,orgId,source.tableId,viewerId))return false;
+    const mapped=await appEntityTable(db,orgId,source.appId,source.entityId);
+    if(mapped!==source.tableId||!await mayUseApp(db,orgId,source.appId,viewerId)||!await getTable(db,orgId,source.tableId)||!await mayUseTable(db,orgId,source.tableId,viewerId))return false;
   }
   return true;
 }
@@ -370,18 +369,23 @@ export function normalizeSteps(raw) {
           const hasLegacySource=sourceFields.some(key=>s[key]!==undefined&&s[key]!==null&&s[key]!=='');
           const hasSourceTables=s.sourceTables!==undefined;
           const hasSource=Boolean(s.sourceAppId)||hasLegacySource||hasSourceTables;
-          if(hasSource&&(typeof s.sourceAppId!=='string'||!s.sourceAppId.trim()||s.sourceAppId.length>200))return {error:'Choose an App for the TypeScript program sources.'};
+          if(s.sourceAppId!==undefined&&(typeof s.sourceAppId!=='string'||!s.sourceAppId.trim()||s.sourceAppId.length>200))return {error:'Choose a valid App for the TypeScript program sources.'};
+          if(hasLegacySource&&(!s.sourceAppId||typeof s.sourceAppId!=='string'||!s.sourceAppId.trim()||s.sourceAppId.length>200))return {error:'Choose an App for the TypeScript program sources.'};
           if(hasSource&&!hasLegacySource&&!hasSourceTables)return {error:'Choose one or more explicit App entities for the TypeScript program.'};
           if(hasSourceTables){
             if(hasLegacySource||!Array.isArray(s.sourceTables)||s.sourceTables.length<1||s.sourceTables.length>20)return {error:'Choose between 1 and 20 explicit App entities for the TypeScript program.'};
             const seen=new Set();
             for(const source of s.sourceTables){
-              if(!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['entityId','tableId','write','mutate'].includes(key))
+              if(!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write','mutate'].includes(key))
+                ||typeof (source.appId??s.sourceAppId)!=='string'||!(source.appId??s.sourceAppId).trim()||(source.appId??s.sourceAppId).length>200
                 ||typeof source.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId)
-                ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||seen.has(source.entityId))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
-              seen.add(source.entityId);
+                ||typeof source.tableId!=='string'||!source.tableId.trim()||source.tableId.length>200||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||seen.has(`${source.appId??s.sourceAppId}\0${source.entityId}`))return {error:'Choose distinct, complete App entities for the TypeScript program.'};
+              seen.add(`${source.appId??s.sourceAppId}\0${source.entityId}`);
             }
-            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,sourceAppId:text('sourceAppId',200),sourceTables:s.sourceTables.map(source=>({entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})})),...sourceAgents,...sourceConnections});
+            const boundSources=s.sourceTables.map(source=>({appId:source.appId??s.sourceAppId,entityId:source.entityId,tableId:source.tableId,...(source.write?{write:true}:{}),...(source.mutate?{mutate:true}:{})}));
+            const appIds=new Set(boundSources.map(source=>source.appId));
+            const sourceTables=appIds.size===1?boundSources.map(({appId,...source})=>source):boundSources;
+            steps.push({type:'code',code:s.code,gatewayId:s.gatewayId,...(appIds.size===1?{sourceAppId:boundSources[0].appId}:{}),sourceTables,...sourceAgents,...sourceConnections});
           }else{
             if(hasLegacySource&&sourceFields.some(key=>typeof s[key]!=='string'||!s[key].trim()||s[key].length>200))return {error:'Choose one complete App/Table source for the TypeScript program.'};
             if(hasLegacySource&&!/^([a-z][a-z0-9_]{0,39})$/.test(s.sourceEntityId))return {error:'Choose a valid App entity for the TypeScript program.'};

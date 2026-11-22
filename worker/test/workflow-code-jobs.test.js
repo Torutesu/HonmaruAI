@@ -8,6 +8,7 @@ import {expireGatewayJobs} from '../src/harness/gateways.js';
 import worker from '../src/index.js';
 import {createWorkflow,updateWorkflow,startRun,continueRun,normalizeSteps,cancelWorkflowRun,settleWorkflowApproval} from '../src/harness/workflows.js';
 import {setMode} from '../src/harness/mode.js';
+import {workflowProgramSources} from '../src/harness/workflowProgramSources.js';
 import {saveWorkspaceAIBudget} from '../src/workspaceAIBudget.js';
 let definition;
 beforeEach(async()=>{
@@ -70,6 +71,30 @@ test('normal workflow create, edit and start preserve a whole TypeScript program
  await updateWorkflow(env.DB,'program-org',created.workflow.id,{steps:[{...definition.steps[0],code:'console.log("new revision")'}]});
  await continueRun(env,{orgId:'program-org',runId:run.id});
  expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_gateway_jobs').first()).n).toBe(1);
+});
+
+test('a saved Workflow may bind read sources across Apps with duplicate entity keys',async()=>{
+ for(const [appId,tableId] of [['multi-app-a','multi-table-a'],['multi-app-b','multi-table-b']]){
+  await env.DB.prepare("INSERT INTO hx_tables(id,org_id,name,columns,created_by,created_at,updated_at) VALUES(?1,'program-org',?2,'[]','program-owner','now','now')").bind(tableId,tableId).run();
+  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES(?1,'program-org',?2,?3,'{}','program-owner','now','now')").bind(appId,appId,tableId).run();
+ }
+ const created=await createWorkflow(env.DB,'program-org',{name:'Cross App reader',trigger:{type:'manual'},steps:[{type:'code',code:definition.steps[0].code,gatewayId:'program-node',sourceTables:[
+  {appId:'multi-app-a',entityId:'primary',tableId:'multi-table-a'},
+  {appId:'multi-app-b',entityId:'primary',tableId:'multi-table-b'},
+ ]}]},'program-owner');
+ expect(created.error).toBeUndefined();
+ expect(created.workflow.steps[0]).toMatchObject({sourceTables:[
+  {appId:'multi-app-a',entityId:'primary',tableId:'multi-table-a'},
+  {appId:'multi-app-b',entityId:'primary',tableId:'multi-table-b'},
+ ]});
+ expect(workflowProgramSources(created.workflow.steps[0]).map(source=>[source.appId,source.entityId])).toEqual([['multi-app-a','primary'],['multi-app-b','primary']]);
+ const run=await startRun(env,{orgId:'program-org',workflow:created.workflow,trigger:'manual',startedBy:'program-owner'});
+ expect(run.status).toBe('running');
+ const job=await env.DB.prepare('SELECT payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2').bind('program-org',run.log[0].jobId).first();
+ expect(JSON.parse(job.payload).context.tableSources).toEqual([
+  {appId:'multi-app-a',entityId:'primary',tableId:'multi-table-a'},
+  {appId:'multi-app-b',entityId:'primary',tableId:'multi-table-b'},
+ ]);
 });
 test('budget crossed after run admission blocks a TypeScript job before it enters the node queue',async()=>{
  await setMode(env.DB,'program-org','harness','program-owner');

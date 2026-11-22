@@ -8,7 +8,7 @@ export function validateStateRequest(request) {
  const params=request.params;
  if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Invalid state parameters.');
  let cleanParams=params;
- const keys=request.method==='agent.invoke'?['agentId','prompt','schema','tier']:request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['entityId','values']:request.method==='table.update'?['entityId','rowId','values','expectedUpdatedAt']:request.method==='connection.request'?['appId','name','query']:request.method==='connection.stageWrite'?['appId','name','body','operationId']:['entityId','rowId','expectedUpdatedAt'];
+ const keys=request.method==='agent.invoke'?['agentId','prompt','schema','tier']:request.method==='state.get'?['view','includeCurrentRun']:request.method==='state.set'?['state','expectedRevision','schemaVersion','businessDate','validationStatus','validationErrors']:request.method==='table.query'?['appId','where','q','pageSize','cursor','entityId']:request.method==='table.insert'?['appId','entityId','values']:request.method==='table.update'?['appId','entityId','rowId','values','expectedUpdatedAt']:request.method==='connection.request'?['appId','name','query']:request.method==='connection.stageWrite'?['appId','name','body','operationId']:['appId','entityId','rowId','expectedUpdatedAt'];
  if(Object.keys(params).some(key=>!keys.includes(key)))throw Error('Unexpected state parameter.');
  if(request.method==='agent.invoke') {
   const clean=normalizeWorkflowAgentCall(params.prompt,{agentId:params.agentId,schema:params.schema,tier:params.tier});
@@ -30,16 +30,18 @@ export function validateStateRequest(request) {
  } else if(request.method==='state.set') {
   if(!params.state||typeof params.state!=='object'||Array.isArray(params.state)||!Number.isSafeInteger(params.expectedRevision)||params.expectedRevision<0)throw Error('State must be read before writing.');
  } else if(request.method==='table.query') {
+  if(params.appId!==undefined&&(typeof params.appId!=='string'||!params.appId.trim()||params.appId.length>200))throw Error('Invalid App source.');
   if(params.where!==undefined&&(!params.where||typeof params.where!=='object'||Array.isArray(params.where)||Object.keys(params.where).length>40))throw Error('Invalid table query filter.');
   if(params.q!==undefined&&(typeof params.q!=='string'||params.q.length>200))throw Error('Invalid table query text.');
   if(params.entityId!==undefined&&(typeof params.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(params.entityId)))throw Error('Invalid App entity.');
   if(params.pageSize!==undefined&&(!Number.isSafeInteger(params.pageSize)||params.pageSize<1||params.pageSize>100))throw Error('Invalid table query page size.');
   if(params.cursor!==undefined&&(typeof params.cursor!=='string'||params.cursor.length>2048))throw Error('Invalid table query cursor.');
  } else if(request.method==='table.insert'||request.method==='table.update') {
+  if(params.appId!==undefined&&(typeof params.appId!=='string'||!params.appId.trim()||params.appId.length>200))throw Error('Invalid App source.');
   if(params.entityId!==undefined&&(typeof params.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(params.entityId)))throw Error('Invalid App entity.');
   if(!params.values||typeof params.values!=='object'||Array.isArray(params.values)||Object.keys(params.values).length>100||Buffer.byteLength(JSON.stringify(params.values))>24000)throw Error('Invalid row values.');
   if(request.method==='table.update'&&(!validRowTarget(params)))throw Error('Invalid row target.');
- } else if(request.method==='table.delete'&&!validRowTarget(params))throw Error('Invalid row target.');
+ } else if(request.method==='table.delete'&&(!validRowTarget(params)||params.appId!==undefined&&(typeof params.appId!=='string'||!params.appId.trim()||params.appId.length>200)))throw Error('Invalid row target.');
  if(Buffer.byteLength(JSON.stringify(request))>160000)throw Error('State request is too large.');
  return {id:request.id,method:request.method,params:cleanParams};
 }

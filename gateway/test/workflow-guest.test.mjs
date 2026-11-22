@@ -71,6 +71,25 @@ test('isolated guest queries a selected entity through the host broker',async()=
  }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
 });
 
+test('isolated guest selects an App when multiple Apps share an entity key',async()=>{
+ const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
+ const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});
+ let output='',stderr='';
+ const parser=createWorkflowOutputParser(prefix,{text:value=>output+=value,request:request=>{
+  requests.push(request);child.stdin.write(JSON.stringify({id:request.id,ok:true,value:{rows:[{id:'person'}],complete:true,cursor:null}})+'\n');
+ }});
+ child.stdout.on('data',chunk=>parser.push(chunk.toString('utf8')));child.stderr.on('data',chunk=>stderr+=chunk.toString('utf8'));
+ const completion=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',exitCode=>{try{parser.end();resolve(exitCode)}catch(error){reject(error)}})});
+ const timer=setTimeout(()=>child.kill('SIGKILL'),5000);
+ try{
+  child.stdin.write(JSON.stringify({nonce,context:{workspaceId:'workspace',tableSources:[
+   {appId:'app-a',entityId:'records',tableId:'table-a'},{appId:'app-b',entityId:'records',tableId:'table-b'}
+  ]},code:`import {table} from '@honmaru/workflow-sdk';const result=await table.query({appId:'app-b',entityId:'records'});console.log(JSON.stringify(result));`})+'\n');
+  assert.equal(await completion,0,stderr);assert.deepEqual(JSON.parse(output.trim()).rows,[{id:'person'}]);
+  assert.equal(requests[0].params.appId,'app-b');assert.equal(requests[0].params.entityId,'records');
+ }finally{clearTimeout(timer);if(child.exitCode===null)child.kill('SIGKILL');}
+});
+
 test('isolated guest stages a row only through an explicitly writable entity',async()=>{
  const nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce,requests=[];
  const child=spawn(process.execPath,['--input-type=module','--eval',WORKFLOW_BOOTSTRAP],{stdio:['pipe','pipe','pipe'],shell:false});

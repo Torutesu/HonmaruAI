@@ -117,25 +117,34 @@ export async function invokeWorkflowAgent(prompt, options = {}, bridge = undefin
 }
 
 export function normalizeWorkflowQueryOptions(options = {}) {
-  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['entityId','where','q','pageSize','maxPages','cursor'].includes(key))) throw Error('Invalid table query options.');
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['appId','entityId','where','q','pageSize','maxPages','cursor'].includes(key))) throw Error('Invalid table query options.');
+  if(options.appId!==undefined&&(typeof options.appId!=='string'||!options.appId.trim()||options.appId.length>200))throw Error('Invalid App source.');
   if(options.entityId!==undefined&&(typeof options.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(options.entityId)))throw Error('Invalid App entity.');
   const pageSize=options.pageSize??100,maxPages=options.maxPages??10;
   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>100||!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>32)throw Error('Table query pageSize must be 1–100 and maxPages 1–32.');
   if(options.q!==undefined&&(typeof options.q!=='string'||options.q.length>200))throw Error('Invalid table query text.');
   if(options.cursor!==undefined&&(typeof options.cursor!=='string'||options.cursor.length>2048))throw Error('Invalid table query cursor.');
   if(options.where!==undefined&&(!options.where||typeof options.where!=='object'||Array.isArray(options.where)||Object.keys(options.where).length>40||new TextEncoder().encode(JSON.stringify(options.where)).length>32000))throw Error('Invalid table query filter.');
-  return {entityId:options.entityId,where:options.where??{},q:options.q??'',pageSize,maxPages,cursor:options.cursor};
+  return {...(options.appId?{appId:options.appId}:{}),...(options.entityId?{entityId:options.entityId}:{}),where:options.where??{},q:options.q??'',pageSize,maxPages,...(options.cursor?{cursor:options.cursor}:{})};
+}
+
+function boundTableSource(sources,{appId,entityId}={}) {
+  if(appId===undefined&&entityId===undefined&&sources.length>1)throw Error('Choose an explicitly authorized entityId for table.query.');
+  const matches=sources.filter(item=>(appId===undefined||item.appId===appId)&&(entityId===undefined||item.entityId===entityId));
+  if(matches.length===1)return matches[0];
+  if(matches.length>1)throw Error('Choose an explicitly authorized App and entity.');
+  if(appId===undefined&&entityId!==undefined&&sources.some(item=>item.entityId===entityId))throw Error('Choose an explicitly authorized App and entity.');
+  throw Error('This workflow has no explicitly authorized App/Table source.');
 }
 
 export async function queryWorkflowTable(options={}, bridge=undefined) {
   const clean=normalizeWorkflowQueryOptions(options);
   const sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
   if(typeof bridge?.queryTable!=='function'||!sources.length)throw Error('This workflow has no explicitly authorized App/Table source.');
-  const source=clean.entityId?sources.find(item=>item.entityId===clean.entityId):sources.length===1?sources[0]:null;
-  if(!source)throw Error(sources.length>1?'Choose an explicitly authorized entityId for table.query.':'This workflow has no explicitly authorized App/Table source.');
+  const source=boundTableSource(sources,clean);
   const rows=[];let cursor=clean.cursor,pages=0,complete=false,bytes=0;
   for(;pages<clean.maxPages;pages++){
-    const page=await bridge.queryTable({entityId:source.entityId,where:clean.where,q:clean.q,pageSize:clean.pageSize,...(cursor?{cursor}:{})});
+    const page=await bridge.queryTable({appId:source.appId,entityId:source.entityId,where:clean.where,q:clean.q,pageSize:clean.pageSize,...(cursor?{cursor}:{})});
     if(!page||!Array.isArray(page.rows)||typeof page.complete!=='boolean'||(page.cursor!==null&&typeof page.cursor!=='string'))throw Error('The App/Table source returned an invalid page.');
     const pageBytes=new TextEncoder().encode(JSON.stringify(page.rows)).length;
     if(bytes+pageBytes>1_000_000)return {rows,complete:false,cursor:cursor??null,pages,incompleteReason:'result_size_limit'};
@@ -147,42 +156,44 @@ export async function queryWorkflowTable(options={}, bridge=undefined) {
 }
 
 export function normalizeWorkflowInsert(input={}) {
-  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['entityId','values'].includes(key))||typeof input.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.entityId)||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.insert request.');
-  return {entityId:input.entityId,values:input.values};
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['appId','entityId','values'].includes(key))||typeof input.entityId!=='string'||!/^([a-z][a-z0-9_]{0,39})$/.test(input.entityId)||input.appId!==undefined&&(typeof input.appId!=='string'||!input.appId.trim()||input.appId.length>200)||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.insert request.');
+  return {...(input.appId?{appId:input.appId}:{}),entityId:input.entityId,values:input.values};
 }
 
 export async function insertWorkflowTableRow(input={},bridge=undefined) {
   const clean=normalizeWorkflowInsert(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
-  if(typeof bridge?.insertTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.write===true))throw Error('Row creation is not enabled for this App entity.');
+  let source;try{source=boundTableSource(sources,clean);}catch{throw Error('Row creation is not enabled for this App entity.');}
+  if(typeof bridge?.insertTable!=='function'||source.write!==true)throw Error('Row creation is not enabled for this App entity.');
   return bridge.insertTable(clean);
 }
 
 function validWorkflowRowTarget(input, allowedKeys) {
   return input&&typeof input==='object'&&!Array.isArray(input)&&!Object.keys(input).some(key=>!allowedKeys.includes(key))
+    &&(input.appId===undefined||typeof input.appId==='string'&&input.appId.trim()&&input.appId.length<=200)
     &&typeof input.entityId==='string'&&/^([a-z][a-z0-9_]{0,39})$/.test(input.entityId)
     &&typeof input.rowId==='string'&&input.rowId.length>0&&input.rowId.length<=200
     &&typeof input.expectedUpdatedAt==='string'&&input.expectedUpdatedAt.length<=64&&Number.isFinite(Date.parse(input.expectedUpdatedAt));
 }
 
 export function normalizeWorkflowUpdate(input={}) {
-  if(!validWorkflowRowTarget(input,['entityId','rowId','values','expectedUpdatedAt'])||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.update request.');
-  return {entityId:input.entityId,rowId:input.rowId,values:input.values,expectedUpdatedAt:input.expectedUpdatedAt};
+  if(!validWorkflowRowTarget(input,['appId','entityId','rowId','values','expectedUpdatedAt'])||!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>100||new TextEncoder().encode(JSON.stringify(input.values)).length>24000)throw Error('Invalid table.update request.');
+  return {...(input.appId?{appId:input.appId}:{}),entityId:input.entityId,rowId:input.rowId,values:input.values,expectedUpdatedAt:input.expectedUpdatedAt};
 }
 
 export async function updateWorkflowTableRow(input={},bridge=undefined) {
-  const clean=normalizeWorkflowUpdate(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
-  if(typeof bridge?.updateTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.mutate===true))throw Error('Row updates are not enabled for this App entity.');
+  const clean=normalizeWorkflowUpdate(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);let source;try{source=boundTableSource(sources,clean);}catch{throw Error('Row updates are not enabled for this App entity.');}
+  if(typeof bridge?.updateTable!=='function'||source.mutate!==true)throw Error('Row updates are not enabled for this App entity.');
   return bridge.updateTable(clean);
 }
 
 export function normalizeWorkflowDelete(input={}) {
-  if(!validWorkflowRowTarget(input,['entityId','rowId','expectedUpdatedAt']))throw Error('Invalid table.delete request.');
-  return {entityId:input.entityId,rowId:input.rowId,expectedUpdatedAt:input.expectedUpdatedAt};
+  if(!validWorkflowRowTarget(input,['appId','entityId','rowId','expectedUpdatedAt']))throw Error('Invalid table.delete request.');
+  return {...(input.appId?{appId:input.appId}:{}),entityId:input.entityId,rowId:input.rowId,expectedUpdatedAt:input.expectedUpdatedAt};
 }
 
 export async function deleteWorkflowTableRow(input={},bridge=undefined) {
-  const clean=normalizeWorkflowDelete(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);
-  if(typeof bridge?.deleteTable!=='function'||!sources.some(item=>item.entityId===clean.entityId&&item.mutate===true))throw Error('Row deletions are not enabled for this App entity.');
+  const clean=normalizeWorkflowDelete(input),sources=bridge?.tableSources||(bridge?.tableSource?[bridge.tableSource]:[]);let source;try{source=boundTableSource(sources,clean);}catch{throw Error('Row deletions are not enabled for this App entity.');}
+  if(typeof bridge?.deleteTable!=='function'||source.mutate!==true)throw Error('Row deletions are not enabled for this App entity.');
   return bridge.deleteTable(clean);
 }
 
@@ -274,6 +285,7 @@ function workflowSdkBaseSource(bridgeExpression = 'undefined') {
 
 export function workflowSdkSource(bridgeExpression = 'undefined') {
   return workflowSdkBaseSource(bridgeExpression) + `\nconst normalizeWorkflowQueryOptions=${normalizeWorkflowQueryOptions.toString()};
+const boundTableSource=${boundTableSource.toString()};
 const queryWorkflowTable=${queryWorkflowTable.toString()};
 const normalizeWorkflowInsert=${normalizeWorkflowInsert.toString()};
 const insertWorkflowTableRow=${insertWorkflowTableRow.toString()};

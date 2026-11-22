@@ -30,7 +30,7 @@ export function validateWorkflowConnectionWrite(sources,params,expectedOwnerId=n
 export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
  if(!context||typeof context!=='object'||Array.isArray(context)||Object.keys(context).some(key=>!['workspaceId','roomId','agentId','timezone','trigger','tableSource','tableSources','connectionSources'].includes(key)))throw Error('Invalid public workflow context.');
  if(context.tableSource!==undefined&&(!context.tableSource||typeof context.tableSource!=='object'||Array.isArray(context.tableSource)||Object.keys(context.tableSource).sort().join(',')!=='appId,entityId,tableId'||Object.values(context.tableSource).some(value=>typeof value!=='string'||!value||value.length>200)))throw Error('Invalid App/Table source context.');
- if(context.tableSources!==undefined&&(!Array.isArray(context.tableSources)||context.tableSources.length<1||context.tableSources.length>20||context.tableSource!==undefined||context.tableSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write','mutate'].includes(key))||Object.keys(source).filter(key=>!['write','mutate'].includes(key)).sort().join(',')!=='appId,entityId,tableId'||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||[source.appId,source.entityId,source.tableId].some(value=>typeof value!=='string'||!value||value.length>200)||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId))||new Set(context.tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==context.tableSources.length||new Set(context.tableSources.map(source=>source.appId)).size!==1))throw Error('Invalid App/Table sources context.');
+ if(context.tableSources!==undefined&&(!Array.isArray(context.tableSources)||context.tableSources.length<1||context.tableSources.length>20||context.tableSource!==undefined||context.tableSources.some(source=>!source||typeof source!=='object'||Array.isArray(source)||Object.keys(source).some(key=>!['appId','entityId','tableId','write','mutate'].includes(key))||Object.keys(source).filter(key=>!['write','mutate'].includes(key)).sort().join(',')!=='appId,entityId,tableId'||source.write!==undefined&&typeof source.write!=='boolean'||source.mutate!==undefined&&typeof source.mutate!=='boolean'||[source.appId,source.entityId,source.tableId].some(value=>typeof value!=='string'||!value||value.length>200)||!/^([a-z][a-z0-9_]{0,39})$/.test(source.entityId))||new Set(context.tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==context.tableSources.length))throw Error('Invalid App/Table sources context.');
  validateWorkflowConnectionSources(context.connectionSources);
  if(typeof code!=='string'||!code.trim()||Buffer.byteLength(JSON.stringify({code,context}))>65536)throw Error('Invalid workflow module.');
  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>WORKFLOW_EXECUTION_TIMEOUT_MS)throw Error('Invalid execution timeout.');
@@ -80,18 +80,18 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
    }catch(error){throw error;}
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'External write could not be staged.'})):request.method==='table.insert'?Promise.resolve().then(async()=>{
    const value=await broker(request);if(value?.error)throw Error('Write rejected.');
-   const source=(context.tableSources||[]).find(item=>item.entityId===request.params?.entityId&&item.write===true);
+   const matches=(context.tableSources||[]).filter(item=>item.entityId===request.params?.entityId&&(request.params?.appId===undefined||item.appId===request.params.appId)&&item.write===true),source=matches.length===1?matches[0]:null;
    if(!source||tableMutations.length>=4)throw Error('Write scope or limit exceeded.');
-   const draft={operation:'insert',entityId:source.entityId,values:request.params.values},bytes=Buffer.byteLength(JSON.stringify(draft));
+   const draft={operation:'insert',appId:source.appId,entityId:source.entityId,values:request.params.values},bytes=Buffer.byteLength(JSON.stringify(draft));
    if(tableMutationBytes+bytes>24000)throw Error('Staged write limit exceeded.');
    tableMutationBytes+=bytes;tableMutations.push(draft);return {staged:true,index:tableMutations.length};
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Row creation was rejected.'})):['table.update','table.delete'].includes(request.method)?Promise.resolve().then(async()=>{
    const value=await broker(request);if(value?.error)throw Error('Mutation rejected.');
-   const source=(context.tableSources||[]).find(item=>item.entityId===request.params?.entityId&&item.mutate===true);
+   const matches=(context.tableSources||[]).filter(item=>item.entityId===request.params?.entityId&&(request.params?.appId===undefined||item.appId===request.params.appId)&&item.mutate===true),source=matches.length===1?matches[0]:null;
    if(!source||tableMutations.length>=4)throw Error('Mutation scope or limit exceeded.');
-   const operation=request.method==='table.update'?'update':'delete',target=`${source.entityId}\0${request.params.rowId}`;
+   const operation=request.method==='table.update'?'update':'delete',target=`${source.appId}\0${source.entityId}\0${request.params.rowId}`;
    if(mutationTargets.has(target))throw Error('Duplicate row mutations are not allowed.');
-   const draft={operation,entityId:source.entityId,rowId:request.params.rowId,expectedUpdatedAt:request.params.expectedUpdatedAt,...(operation==='update'?{values:request.params.values}:{})},bytes=Buffer.byteLength(JSON.stringify(draft));
+   const draft={operation,appId:source.appId,entityId:source.entityId,rowId:request.params.rowId,expectedUpdatedAt:request.params.expectedUpdatedAt,...(operation==='update'?{values:request.params.values}:{})},bytes=Buffer.byteLength(JSON.stringify(draft));
    if(tableMutationBytes+bytes>24000)throw Error('Staged mutation limit exceeded.');
    tableMutationBytes+=bytes;mutationTargets.add(target);tableMutations.push(draft);return {staged:true,index:tableMutations.length};
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Row mutation was rejected.'})):broker(request);
