@@ -85,6 +85,7 @@ import { agentRemoteMcpConnections, workflowRemoteMcpConnections, setAgentRemote
 import { caller } from "../channelRoutes.js";
 import { allowed } from "../permissions.js";
 import { audit, person } from "../audit.js";
+import { auditAppRowChange } from "./appRowAudit.js";
 import { enforce } from "../ratelimit.js";
 import { getMode, setMode, MODES } from "./mode.js";
 import { getDisplayPreference, setDisplayPreference } from "./displayPreferences.js";
@@ -791,18 +792,21 @@ export async function handleHarness(request, env, url, context = {}) {
       if (!rowId && request.method === "POST") {
         const r = await addRow(env.DB, orgId, tableId, input.values, me, input.validation, me);
         if (r.error) return fail(r);
+        await auditAppRowChange(env,request,{orgId,tableId,table:r.table,rowId:r.row.id,action:'create',actor:person(who.user),after:r.row,source:'app'});
         await afterRowChange(env, { orgId, eventId:r.rowEventId });
         return json({ row: r.row }, 201);
       }
       if (rowId && (request.method === "PUT" || request.method === "PATCH")) {
         const r = await updateRow(env.DB, orgId, tableId, rowId, input.values, me, input.expectedUpdatedAt, input.validation, me);
         if (r.error) return fail(r);
+        await auditAppRowChange(env,request,{orgId,tableId,table:r.table,rowId,action:'update',actor:person(who.user),before:r.before,after:r.row,source:'app'});
         await afterRowChange(env, { orgId, eventId:r.rowEventId });
         return json({ row: r.row });
       }
       if (rowId && request.method === "DELETE") {
         const r = await deleteRow(env.DB, orgId, tableId, rowId, url.searchParams.get("expectedUpdatedAt") ?? undefined, me);
         if (r.error) return fail(r);
+        await auditAppRowChange(env,request,{orgId,tableId,table:r.table,rowId,action:'delete',actor:person(who.user),before:r.before,source:'app'});
         await afterRowDelete(env, { orgId, eventId:r.rowEventId });
         return json({ deleted: true, before: r.before });
       }

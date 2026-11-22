@@ -715,6 +715,11 @@ test('a TypeScript table.insert is staged by the authorized source and commits a
  expect((await api(`/jobs/${job.id}/finish`,completion)).status).toBe(409);
  expect((await env.DB.prepare("SELECT position FROM hx_rows WHERE org_id='program-org' AND table_id='query-table' AND json_extract(data,'$.status') IN ('created','second') ORDER BY position").all()).results.map(row=>row.position)).toEqual([4,5]);
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_workflow_row_event_outbox WHERE org_id='program-org' AND table_id='query-table' AND status='done'").first()).n).toBe(2);
+ const auditRows=(await env.DB.prepare("SELECT action,body FROM audit_events WHERE org_id='program-org' AND action='app.record_created' ORDER BY seq").all()).results;
+ expect(auditRows).toHaveLength(2);
+ expect(auditRows.map(item=>JSON.parse(item.body).details.source)).toEqual(['workflow','workflow']);
+ expect(auditRows.map(item=>JSON.parse(item.body).details.fieldIds)).toEqual([['status'],['status']]);
+ expect(JSON.stringify(auditRows.map(item=>JSON.parse(item.body).details))).not.toContain('created');
  expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('done');
 });
 
@@ -745,6 +750,9 @@ test('explicitly authorized table.update and table.delete commit together after 
  expect((await env.DB.prepare("SELECT json_extract(data,'$.status') AS status FROM hx_rows WHERE id='query-row-1'").first()).status).toBe('updated');
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_rows WHERE id='query-row-2'").first()).n).toBe(0);
  expect((await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first()).status).toBe('done');
+ const mutationAudits=(await env.DB.prepare("SELECT action,body FROM audit_events WHERE org_id='program-org' AND action LIKE 'app.record_%' ORDER BY seq").all()).results;
+ expect(mutationAudits.map(item=>item.action)).toEqual(['app.record_updated','app.record_deleted']);
+ expect(JSON.stringify(mutationAudits.map(item=>JSON.parse(item.body).details))).not.toContain('updated');
 });
 
 test('table.update and table.delete require their separate explicit source permission',async()=>{

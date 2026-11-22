@@ -9,6 +9,7 @@ import {workflowProgramSources} from './workflowProgramSources.js';
 import {mayRunAgent} from './agents.js';
 import {addRow,updateRow,deleteRow} from './tables.js';
 import {prepareWorkflowRowEventIfWatched,drainWorkflowRowEvents} from './workflowRowEventDispatch.js';
+import {auditAppRowChange} from './appRowAudit.js';
 import {appConnectionsForViewer} from './appConnectionGrants.js';
 import {getUserByGithubId} from '../db.js';
 import {workflowEffectAuthority} from './workflowEffectAuthority.js';
@@ -230,7 +231,7 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
   }
   return {settled:true,status:'waiting',cardId};
  }
- const tableStatements=[];let writeFailed=connectionWrites.length>0&&writeDecision&&!approvedWrite;
+ const tableStatements=[];const auditedMutations=[];let writeFailed=connectionWrites.length>0&&writeDecision&&!approvedWrite;
  const writeOffsets=new Map();
  const legacyWrites=Array.isArray(programResult.tableWrites)?programResult.tableWrites:[];
  const requestedMutations=Array.isArray(programResult.tableMutations)?programResult.tableMutations.map(item=>({...item})):legacyWrites.map(item=>({...item,operation:'insert'}));
@@ -252,6 +253,7 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
    const positionOffset=writeOffsets.get(source.tableId)||0;
    const row=operation==='insert'?await addRow(db,binding.org_id,source.tableId,item.values,by,'strict',by,writeGuard,{deferWrite:true,positionOffset}):operation==='update'?await updateRow(db,binding.org_id,source.tableId,item.rowId,item.values,by,item.expectedUpdatedAt,'strict',by,writeGuard,{deferWrite:true}):await deleteRow(db,binding.org_id,source.tableId,item.rowId,item.expectedUpdatedAt,by,writeGuard,{by,deferWrite:true});
    if(row.error){writeFailed=true;break;}
+   auditedMutations.push({operation,table:row.table,before:row.before??null,row:row.row});
    if(operation==='insert')writeOffsets.set(source.tableId,positionOffset+1);
    const event=await prepareWorkflowRowEventIfWatched(db,{orgId:binding.org_id,table:row.table,before:row.before??null,row:row.row,by});
    tableStatements.push(row.statement,db.prepare(`INSERT INTO hx_workflow_node_checkpoints(org_id,run_id,node_id,fingerprint,effect,status,owner,attempt,lease_until)
@@ -318,7 +320,11 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
   const rejectedUpdate=update.bind(jobId,fingerprint,binding.definition,binding.org_id,binding.run_id,0,approvedWrite?1:0,declined?1:0,writeReceipts);
   result=await db.batch([rejectedUpdate,...workflowSettlementStatements(db,binding.org_id,binding.run_id),checkpoint]);
  }
- if(result[0]?.meta?.changes&&!writeFailed&&requestedMutations.length&&env)await drainWorkflowRowEvents(env,{limit:requestedMutations.length,now:Date.now()});
+ if(result[0]?.meta?.changes&&!writeFailed&&requestedMutations.length&&env){
+  const createdBy=String(JSON.parse(binding.definition).createdBy);
+  for(const mutation of auditedMutations)await auditAppRowChange(env,null,{orgId:binding.org_id,tableId:mutation.table.id,table:mutation.table,rowId:mutation.row?.id||mutation.before?.id,action:mutation.operation==='insert'?'create':mutation.operation==='update'?'update':'delete',actor:{type:'user',id:createdBy},before:mutation.before,after:mutation.row,source:'workflow'});
+  await drainWorkflowRowEvents(env,{limit:requestedMutations.length,now:Date.now()});
+ }
  return {settled:!!result[0]?.meta?.changes};
 }
 

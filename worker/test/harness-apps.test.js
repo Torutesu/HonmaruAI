@@ -200,6 +200,35 @@ test("a table keeps its values in the column's type", async () => {
   expect(renamed.table.columns[0]).toMatchObject({ id: "company", name: "Account" });
 });
 
+test('App record changes enter the workspace audit chain without recording field values', async () => {
+  const createdApp = await send('POST', '/apps', toru, { orgId: ORG, name: 'Audited app', columns: [{ name: 'Secret', type: 'text' }] });
+  expect(createdApp.status).toBe(201);
+  const { app } = await createdApp.json();
+  const table = (await (await get(`/apps/${app.id}?orgId=${ORG}`, toru)).json()).table;
+  const created = await send('POST', `/tables/${table.id}/rows`, toru, { orgId: ORG, values: { secret: 'do-not-store-this-value' } });
+  expect(created.status).toBe(201);
+  const { row } = await created.json();
+  const updated = await send('PATCH', `/tables/${table.id}/rows/${row.id}`, toru, { orgId: ORG, values: { secret: 'also-private' }, expectedUpdatedAt: row.updatedAt });
+  expect(updated.status).toBe(200);
+  const current = await updated.json();
+  const deleted = await send('DELETE', `/tables/${table.id}/rows/${row.id}?expectedUpdatedAt=${encodeURIComponent(current.row.updatedAt)}&orgId=${encodeURIComponent(ORG)}`, toru, {});
+  expect(deleted.status).toBe(200);
+
+  const events = await env.DB.prepare("SELECT action,body FROM audit_events WHERE org_id=?1 AND action LIKE 'app.record_%' ORDER BY seq").bind(ORG).all();
+  expect(events.results.map(event => event.action)).toEqual(['app.record_created', 'app.record_updated', 'app.record_deleted']);
+  const bodies = events.results.map(event => JSON.parse(event.body));
+  expect(bodies.map(body => body.details)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ tableId: table.id, rowId: row.id, fieldIds: ['secret'], source: 'app' }),
+  ]));
+  expect(JSON.stringify(bodies)).not.toContain('do-not-store-this-value');
+  expect(JSON.stringify(bodies)).not.toContain('also-private');
+
+  const standalone = await send('POST', '/tables', toru, { orgId: ORG, name: 'Simple table', columns: [{ name: 'Value', type: 'text' }] });
+  const { table: simpleTable } = await standalone.json();
+  await send('POST', `/tables/${simpleTable.id}/rows`, toru, { orgId: ORG, values: { value: 'simple-mode-value' } });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE org_id=?1 AND action LIKE 'app.record_%'").bind(ORG).first('n')).toBe(3);
+});
+
 test('padded guest memberships cannot read or mutate standalone Harness tables', async () => {
   const made = await send('POST', '/tables', mika, { orgId: ORG, name: 'Standalone', columns: [{ name: 'Secret', type: 'text' }] });
   const { table } = await made.json();

@@ -11,6 +11,7 @@ import { mayUseTable, mayEditTable, mayWriteTableRecords } from './harness/resou
 import { getMode } from './harness/mode.js';
 import { allowed } from './permissions.js';
 import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
+import { auditAppRowChange } from './harness/appRowAudit.js';
 import { checkOutgoing } from './dlp.js';
 import { sha256Hex } from './auth.js';
 import { announceEvents, announceTo } from './announce.js';
@@ -247,11 +248,13 @@ export async function callContentTool(env, actor, name, args = {}, request, ctx)
   }
   if (name === 'add_list_record') return mcpResult(await once(env, actor, name, args, async () => {
     const result = checked(await addRow(env.DB, actor.orgId, args.listId, args.values, actor.githubId, 'strict', actor.githubId));
+    await auditAppRowChange(env,request,{orgId:actor.orgId,tableId:result.table.id,table:result.table,rowId:result.row.id,action:'create',actor:{type:'user',id:actor.login||String(actor.githubId),name:actor.name||actor.login||null},after:result.row,source:'mcp'});
     if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return { record: publicRow(result.row) };
   }));
   if (name === 'update_list_record') {
     const result = checked(await updateRow(env.DB, actor.orgId, args.listId, args.recordId, args.values, actor.githubId, args.expectedUpdatedAt, 'strict', actor.githubId));
+    await auditAppRowChange(env,request,{orgId:actor.orgId,tableId:result.table.id,table:result.table,rowId:result.row.id,action:'update',actor:{type:'user',id:actor.login||String(actor.githubId),name:actor.name||actor.login||null},before:result.before,after:result.row,source:'mcp'});
     if(result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
     return mcpResult({ record: publicRow(result.row) });
   }

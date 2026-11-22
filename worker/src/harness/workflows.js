@@ -25,6 +25,7 @@ import { workflowCredentialSource } from '../orgAI.js';
 import { cancelDeploymentBudgetWorkflowRuns } from '../workspaceBudgetStop.js';
 import { claimWorkflowNode, finishWorkflowNode, markWorkflowNodeUnknown, renewWorkflowNode, commitWorkflowNodeEffects } from './workflowCheckpoints.js';
 import { prepareWorkflowRowEvent, drainWorkflowRowEvents } from './workflowRowEventDispatch.js';
+import { auditAppRowChange } from './appRowAudit.js';
 import { rowEventFingerprint } from './workflowRowEventFingerprint.js';
 import { workflowProgramSources } from './workflowProgramSources.js';
 import { workflowStepInputPreview, workflowPreviewBytes, publicWorkflowInputPreview, MAX_RUN_PREVIEW_BYTES } from './workflowInputPreview.js';
@@ -1896,7 +1897,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: r.row.id, rowId: r.row.id,
-        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: () => drainWorkflowRowEvents(env,{eventId:event.id,limit:1}) } };
+        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: async () => {
+          await auditAppRowChange(env,null,{orgId,tableId:r.table.id,table:r.table,rowId:r.row.id,action:'create',actor:{type:'user',id:String(owner)},after:r.row,source:'workflow'});
+          await drainWorkflowRowEvents(env,{eventId:event.id,limit:1});
+        } } };
     }
     case "update_row": {
       const tableId = step.tableId || scope.input?.tableId || (workflow.trigger?.type==='app_record_change'?await appEntityTable(db,orgId,workflow.trigger.appId,workflow.trigger.entityId):null);
@@ -1930,7 +1934,10 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       if (r.error) return { status: "failed", error: r.error };
       const event=await prepareWorkflowRowEvent(db,{orgId,table:r.table,before:r.before,row:r.row,by:`workflow:${workflow.id}`,depth:depth+1});
       return { status: "ok", output: rowId, rowId,
-        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: () => drainWorkflowRowEvents(env,{eventId:event.id,limit:1}) } };
+        __workflowLocalEffects: { statements: [r.statement,event.statement], afterCommit: async () => {
+          await auditAppRowChange(env,null,{orgId,tableId:r.table.id,table:r.table,rowId:r.row.id,action:'update',actor:{type:'user',id:String(owner)},before:r.before,after:r.row,source:'workflow'});
+          await drainWorkflowRowEvents(env,{eventId:event.id,limit:1});
+        } } };
     }
     case "approval": {
       // Checked again here: a placeholder names someone only now, and a
