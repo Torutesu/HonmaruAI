@@ -4749,10 +4749,10 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 - Focused AppTableContracts/API and AutomationRuns tests passed; full Web suite: **2,160/2,160** across 281 files. TypeScript and Vite production build passed; `git diff --check` passed. Existing Vite chunk/dynamic-import warnings remain. Exact-head CI, merge/deployment, and authenticated Kylon side-by-side acceptance remain pending.
 
 
-### 2026-11-21 — KY-059 explicitly bound App Connection writes (candidate)
+### 2026-11-22 — KY-059/KY-064 bounded TypeScript App write batches
 
-- TypeScript Workflows can now use the existing App Connection broker for non-GET methods only when the saved source binding explicitly opts into writes. The frozen binding includes App, owner, version, and method; the Worker rechecks the live binding and Workflow/App access before and after dispatch. Requests are bounded JSON with a stable caller operation ID; the Worker derives a run-scoped idempotency key and the existing request ledger refuses duplicate sends. The VM receives no URL or credential, and ambiguous/revoked outcomes are not retried. This is saved Workflow authorization, not Kylon per-run approval-step parity.
-- Local QA: Gateway workflow-bridge.test.mjs 18/18; Worker workflow-code-jobs.test.js 54/54; WorkflowProgramEditor plus i18n tests 11/11; full Web suite 2,116/2,116; production build, TypeScript checks, parity validator, diff check, and changed Worker node --check passed. The full Worker suite is running; exact-head CI, merge/deployment, and authenticated production/Kylon acceptance remain pending. No new paid service; Simple mode is unchanged.
+- TypeScript Workflowの`connection.request()`をGET専用にし、`connection.stageWrite()`で同一の凍結App接続に最大3件・合計20 KBまでの非GET要求を準備する。run完了時に接続所有者だけへ1枚の承認カードを発行し、承認前は外部送信せず、内部Table変更とメッセージも保留する。承認後は並び順どおり一度だけ送信し、曖昧なprovider結果と未送信の残りをbody-free receiptとして記録して再送しない。全要求成功時だけ内部効果を確定する。拒否・一部失敗では内部変更を適用しない。URLと認証情報はVMに渡さない。
+- Local QA: Gateway full suite **117/117**、Worker Workflow対象 **58/58**、Web full suite **2,116/2,116**、Web typecheck/build、parity validatorが成功。Worker全体テストは実行中。PR exact-head CI、merge/deploy、本番承認画面の認証済み受入は未確認。新規課金なし、Simple modeは変更なし.
 
 ### 2026-11-21 — KY-015 Smithery Agent authorization fences (candidate)
 
