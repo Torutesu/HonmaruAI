@@ -1,5 +1,13 @@
 .studio-mcp-connections { margin: 20px 0; padding: 20px; border: 1px solid var(--st-line, var(--bone)); border-radius: 12px; }
 .studio-mcp-connections h3 { margin-top: 0; }
+.studio-mcp-chatgpt { margin: 18px 0; padding: 16px; border: 1px solid var(--st-line, var(--bone)); border-radius: 10px; background: var(--st-field, var(--mist)); }
+.studio-mcp-chatgpt h4 { margin: 0 0 8px; font-size: 14px; }
+.studio-mcp-chatgpt p, .studio-mcp-chatgpt li { color: var(--st-dim, var(--slate)); font-size: 13px; line-height: 1.55; }
+.studio-mcp-chatgpt ol { padding-left: 22px; }
+.studio-mcp-chatgpt li + li { margin-top: 5px; }
+.studio-mcp-endpoint { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.studio-mcp-endpoint code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 8px 10px; border: 1px solid var(--st-line, var(--bone)); border-radius: 7px; background: var(--st-bg, white); }
+.studio-mcp-copy-status { display: block; min-height: 1.4em; font-size: 12px; color: var(--st-dim, var(--slate)); }
 .studio-mcp-connections form { display: grid; gap: 12px; margin: 16px 0; }
 .studio-mcp-connections label, .mcp-consent label, .mcp-consent label span { display: block; }
 .studio-mcp-connections input, .studio-mcp-connections textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px; color: inherit; background: var(--st-field, var(--mist)); border: 1px solid var(--st-line, var(--bone)); border-radius: 8px; }
@@ -17,3 +25,8 @@
   :root:not([data-theme="light"]) .mcp-consent { --mcp-field: #1a1a1a; --mcp-line: #2a2a2a; --mcp-dim: #a3a3a3; }
 }
 :root[data-theme="dark"] .mcp-consent { --mcp-field: #1a1a1a; --mcp-line: #2a2a2a; --mcp-dim: #a3a3a3; }
+
+@media (max-width: 560px) {
+  .studio-mcp-endpoint { align-items: stretch; flex-direction: column; }
+  .studio-mcp-endpoint .studio-btn { align-self: flex-start; }
+}

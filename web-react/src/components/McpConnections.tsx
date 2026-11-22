@@ -16,6 +16,7 @@ export function McpConnections({ httpBase, sessionToken, orgId }: { httpBase: st
   const [redirects, setRedirects] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const headers = { 'x-session-token': sessionToken }
     const responses = await Promise.all(['clients', 'connections', 'scopes'].map(path => fetch(`${httpBase}/mcp/oauth/${path}`, { headers, signal })))
@@ -44,6 +45,27 @@ export function McpConnections({ httpBase, sessionToken, orgId }: { httpBase: st
   return <section aria-label={t('MCP connections')} className="studio-mcp-connections">
     <h3>{t('Connected AI apps')}</h3>
     <p>{t('mcp.connections.lede')}</p>
+    <div className="studio-mcp-chatgpt">
+      <h4>{t('Connect ChatGPT to Honmaru')}</h4>
+      <p>{t('mcp.chatgpt.lede')}</p>
+      <div className="studio-mcp-endpoint">
+        <code>{resource}</code>
+        <button className="studio-btn" type="button" disabled={!resource} onClick={() => {
+          if (!navigator.clipboard?.writeText) { setError(t('Could not copy the MCP URL.')); return }
+          void navigator.clipboard.writeText(resource).then(() => {
+            setCopied(true)
+          }).catch(() => setError(t('Could not copy the MCP URL.')))
+        }}>{copied ? t('Copied') : t('Copy MCP URL')}</button>
+      </div>
+      <ol>
+        <li>{t('mcp.chatgpt.step1')}</li>
+        <li>{t('mcp.chatgpt.step2')}</li>
+        <li>{t('mcp.chatgpt.step3')}</li>
+      </ol>
+      <p>{t('mcp.chatgpt.access')}</p>
+      <a href="https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt" target="_blank" rel="noreferrer">{t('ChatGPT custom MCP setup guide')}</a>
+      <span className="studio-mcp-copy-status" role="status" aria-live="polite">{copied ? t('MCP URL copied.') : ''}</span>
+    </div>
     {error && <p role="alert">{error}</p>}
     {connections.filter(connection => connection.orgId === orgId).map(connection => <div key={connection.id} className="studio-token-row">
       <strong>{connection.name}</strong>

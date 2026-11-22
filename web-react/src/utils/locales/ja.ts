@@ -4563,4 +4563,14 @@ Object.assign(table,{'Immutable table API contracts':'不変のテーブルAPI�
 Object.assign(table,{'Table API contracts are unavailable in this environment.':'この環境ではテーブルAPI契約を利用できません。'})
 Object.assign(table,{'Choose read sources from one or more Apps. Row writes require explicit permission for each selected entity.':'1つ以上のAppから読み取り元を選択できます。行の書き込みにはエンティティごとの明示的な許可が必要です。','No App/Table source selected.':'App/Tableソースが選択されていません。'})
 Object.assign(table, { 'Scroll tabs left': 'タブを左にスクロール', 'Scroll tabs right': 'タブを右にスクロール' })
+Object.assign(table, {
+  'Connect ChatGPT to Honmaru': 'ChatGPTをHonmaruに接続',
+  'mcp.chatgpt.lede': 'ChatGPTにこのリモートMCPサーバーを追加すると、ChatGPTからHonmaruを使えます。サインイン後、ワークスペースと許可する権限を選びます。',
+  'mcp.chatgpt.step1': 'ChatGPTの「設定」→「アプリ」（または「プラグイン」）を開き、「カスタムMCPサーバーを追加」を選びます。',
+  'mcp.chatgpt.step2': '接続名を付け、この画面に表示されるMCP URLを貼り付けます。',
+  'mcp.chatgpt.step3': '接続後にHonmaruへサインインし、ワークスペースを選んで必要な権限だけを許可します。',
+  'mcp.chatgpt.access': '利用可否と読み取り・書き込み操作は、ChatGPTのプランとワークスペース設定によって異なります。Honmaru側の権限も適用されます。接続はこの画面から解除できます。',
+  'ChatGPT custom MCP setup guide': 'ChatGPTのカスタムMCP設定ガイド',
+  'Copy MCP URL': 'MCP URLをコピー', 'MCP URL copied.': 'MCP URLをコピーしました。', 'Could not copy the MCP URL.': 'MCP URLをコピーできませんでした。', 'Copied': 'コピー済み',
+})
 export default table
