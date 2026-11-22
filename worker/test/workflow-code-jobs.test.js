@@ -376,13 +376,24 @@ async function setupProgramTableSource({privateApp=false,multiSource=false,writa
  return {api,job,privateApp};
 }
 
-async function setupProgramConnectionSource({method='GET',write=false}={}){
+async function setupProgramConnectionSource({method='GET',write=false,secondConnection=null}={}){
  await upsertUser(env.DB,{githubId:'app-owner',login:'app-owner',name:'App Owner'});
  await upsertMembership(env.DB,'program-org','app-owner','admin');
  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES('connection-app','program-org','Connection App','connection-table','{}','app-owner','now','now')").run();
  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org','connection-app','workspace',1)").run();
  await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org','connection-app','program-owner','github_issues',1,'https://api.github.com/repos/example/project/issues',?1,1)").bind(method).run();
- definition.steps=[{...definition.steps[0],sourceConnections:[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method,...(write?{write:true}:{})}]}];
+ const sources=[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method,...(write?{write:true}:{})}];
+ if(secondConnection){
+  if(secondConnection.ownerId!=='program-owner'){
+   await upsertUser(env.DB,{githubId:secondConnection.ownerId,login:secondConnection.ownerId,name:'Second App Owner'});
+   await upsertMembership(env.DB,'program-org',secondConnection.ownerId,'admin');
+  }
+  await env.DB.prepare("INSERT INTO hx_apps(id,org_id,name,table_id,definition,created_by,created_at,updated_at) VALUES(?1,'program-org','Second Connection App',?2,'{}','app-owner','now','now')").bind(secondConnection.appId,`${secondConnection.appId}-table`).run();
+  await env.DB.prepare("INSERT INTO hx_app_access(org_id,app_id,visibility,version) VALUES('program-org',?1,'workspace',1)").bind(secondConnection.appId).run();
+  await env.DB.prepare("INSERT INTO hx_app_connections(org_id,app_id,created_by,name,version,endpoint,method,enabled) VALUES('program-org',?1,?2,?3,1,?4,?5,1)").bind(secondConnection.appId,secondConnection.ownerId,secondConnection.name,secondConnection.endpoint||'https://api.github.com/repos/example/project/issues/comments',secondConnection.method||'POST').run();
+  sources.push({appId:secondConnection.appId,name:secondConnection.name,ownerId:secondConnection.ownerId,version:1,method:secondConnection.method||'POST',...(write?{write:true}:{})});
+ }
+ definition.steps=[{...definition.steps[0],sourceConnections:sources}];
  await env.DB.prepare("UPDATE hx_workflow_run_definitions SET definition=?1 WHERE run_id='program-run'").bind(JSON.stringify(definition)).run();
  const queued=await enqueue({at:Date.now()});expect(queued.status).toBe('pending');
  const token=`hgw_${crypto.randomUUID()}${crypto.randomUUID()}`;
@@ -491,6 +502,34 @@ test('a staged App write waits for its owner and is sent once only after approva
  }finally{vi.unstubAllGlobals()}
 });
 
+test('one approval can authorize ordered writes across connections belonging to the same owner',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true,secondConnection:{appId:'connection-app-2',name:'github_comments',ownerId:'program-owner'}});
+ const requests=[
+  {appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-multi-1',body:{title:'Issue'}},
+  {appId:'connection-app-2',name:'github_comments',ownerId:'program-owner',version:1,method:'POST',operationId:'comment-multi-2',body:{body:'Comment'}},
+ ];
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:requests});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ expect(run.status).toBe('waiting');
+ const saved=await env.DB.prepare("SELECT recipient_user_id,data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(run.card_id).first();
+ const card=JSON.parse(saved.data),write=card.workflowApproval.codeWrite;
+ expect(saved.recipient_user_id).toBe('program-owner');
+ expect(write.sources).toEqual([
+  {appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST'},
+  {appId:'connection-app-2',name:'github_comments',ownerId:'program-owner',version:1,method:'POST'},
+ ]);
+ expect(card.context).toContain('github_issues · POST');expect(card.context).toContain('github_comments · POST');
+ const fetch=vi.fn(async(url)=>new Response(JSON.stringify({url:String(url)}),{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const approved={...card,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
+  await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),run.card_id).run();
+  const settled=await settleWorkflowApproval(env,'program-org',approved);
+  expect(settled.status).toBe('done');expect(fetch).toHaveBeenCalledTimes(2);
+  expect(settled.log[0].externalWrites).toEqual(requests.map(({appId,name,method,operationId})=>({appId,name,method,operationId,status:'sent'})));
+ }finally{vi.unstubAllGlobals()}
+});
+
 test('a failed write in an approved App batch records the uncertain tail and never replays it',async()=>{
  const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
  const requests=['one','two','three'].map((title,index)=>({appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:`issue-${index+1}`,body:{title}}));
@@ -521,12 +560,12 @@ test('a failed write in an approved App batch records the uncertain tail and nev
  }finally{vi.unstubAllGlobals()}
 });
 
-test('the Worker rejects duplicate operation IDs and batches that mix App connections',async()=>{
- const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+test('the Worker rejects duplicate operation IDs and batches that mix App connection owners',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true,secondConnection:{appId:'connection-app-2',name:'other_connection',ownerId:'program-owner'}});
  const base={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',body:{title:'x'}};
  const duplicate=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{...base,operationId:'same'},{...base,operationId:'same'}]});
  expect(duplicate.status).toBe(400);
- const mixed=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{...base,operationId:'one'},{...base,name:'other_connection',operationId:'two'}]});
+ const mixed=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{...base,operationId:'one'},{...base,appId:'connection-app-2',name:'other_connection',ownerId:'second-owner',operationId:'two'}]});
  expect(mixed.status).toBe(400);
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id='program-org'").first()).n).toBe(0);
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);

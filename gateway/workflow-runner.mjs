@@ -19,6 +19,12 @@ export function validateWorkflowConnectionSources(sources){
   ||new Set(sources.map(source=>`${source.appId}\0${source.name}`)).size!==sources.length)throw Error('Invalid App connection sources context.');
  return sources;
 }
+export function validateWorkflowConnectionWrite(sources,params,expectedOwnerId=null){
+ const source=Array.isArray(sources)?sources.find(item=>item.appId===params?.appId&&item.name===params?.name):null;
+ if(!source||source.method==='GET'||source.write!==true||typeof source.ownerId!=='string'||!source.ownerId
+  ||(expectedOwnerId!==null&&source.ownerId!==expectedOwnerId))throw Error('Write scope or connection owner is not enabled.');
+ return source;
+}
 // Only trusted orchestration calls this with an activation-bound state callback.
 // No API route, general gateway payload or model tool can select this runner yet.
 export async function runWorkflowIsolated({code,context={}},{stateOperation,binary=process.env.HONMARU_CONTAINER_BIN||'container',timeoutMs=WORKFLOW_EXECUTION_TIMEOUT_MS,signal}={}){
@@ -34,7 +40,7 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
  const name=`honmaru-${randomUUID()}`,nonce=randomUUID().replaceAll('-',''),prefix='\x1e'+nonce;
  const child=spawn(binary,containerArgs(name,WORKFLOW_BOOTSTRAP),{stdio:['pipe','pipe','pipe'],shell:false});
  let closed=false,status=null,killPromise,forceTimer,wireBytes=0,responseBytes=0,logBytes=0;
- const messages=[],tableMutations=[],connectionWrites=[],connectionWriteOperationIds=new Set(),mutationTargets=new Set(),requestIds=new Set();let connectionWriteBinding=null,connectionWriteSequence=0,messageBytes=0,tableMutationBytes=0;
+ const messages=[],tableMutations=[],connectionWrites=[],connectionWriteOperationIds=new Set(),mutationTargets=new Set(),requestIds=new Set();let connectionWriteOwnerId=null,connectionWriteSequence=0,messageBytes=0,tableMutationBytes=0;
  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0);
  const decoder=new StringDecoder('utf8');
  const stop=reason=>{
@@ -59,12 +65,11 @@ export async function runWorkflowIsolated({code,context={}},{stateOperation,bina
    messageBytes+=Buffer.byteLength(JSON.stringify(draft));messages.push(draft);return {staged:true,index:messages.length};
   }).then(value=>({id:request.id,ok:true,value}),()=>({id:request.id,ok:false,error:'Message draft was rejected.'})):request.method==='connection.request'?broker(request):request.method==='connection.stageWrite'?Promise.resolve().then(async()=>{
    if(connectionWriteOperationIds.size>=3)throw Error('At most three external writes may be staged per Workflow run.');
-   const source=(context.connectionSources||[]).find(item=>item.appId===request.params?.appId&&item.name===request.params?.name&&item.method!=='GET'&&item.write===true);
-   if(!source)throw Error('Write scope is not enabled.');
+   const source=validateWorkflowConnectionWrite(context.connectionSources,request.params,connectionWriteOwnerId);
    const operationId=request.params.operationId;
    if(connectionWriteOperationIds.has(operationId))throw Error('External write operation IDs must be unique within a run.');
-   if(connectionWriteBinding&&(connectionWriteBinding.appId!==source.appId||connectionWriteBinding.name!==source.name||connectionWriteBinding.ownerId!==source.ownerId||connectionWriteBinding.version!==source.version||connectionWriteBinding.method!==source.method))throw Error('All writes in one approval batch must use the same App connection.');
-   connectionWriteBinding=source;
+   if(connectionWriteOwnerId!==null&&connectionWriteOwnerId!==source.ownerId)throw Error('All writes in one approval batch must have the same connection owner.');
+   connectionWriteOwnerId=source.ownerId;
    const slot=connectionWriteSequence++;
    connectionWriteOperationIds.add(operationId);
    try{
