@@ -2341,7 +2341,7 @@ test('a Harness room follow-up reads its room-shared App even when a private App
   });
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
     bodies.push(JSON.parse(opts.body));
-    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-invoice', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, q: 'INV-7' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-invoice', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, entityId: 'primary', q: 'INV-7' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
   });
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
     bodies.push(JSON.parse(opts.body));
@@ -2358,6 +2358,33 @@ test('a Harness room follow-up reads its room-shared App even when a private App
   expect((await messages(mika)).some(message => message.body.includes('INV-7 is paid'))).toBe(true);
 });
 
+test('a Harness Room follow-up searches every readable entity in a shared App and records entity provenance',async()=>{
+  await send('PUT','/orgs/mode',toru,{orgId:ORG,mode:'harness'});
+  const app=(await(await send('POST','/apps',mika,{orgId:ORG,template:'invoices',sample:false})).json()).app;
+  expect((await send('PUT',`/apps/${app.id}/access`,mika,{orgId:ORG,visibility:'room',channel:'b:ops',version:0})).status).toBe(200);
+  const {createTable}=await import('../src/harness/tables.js');
+  const extra=(await createTable(env.DB,{orgId:ORG,name:'Contracts',columns:[{name:'Contract number'},{name:'Status'}],by:'9302'})).table;
+  await env.DB.prepare('INSERT INTO hx_app_entities(org_id,app_id,entity_key,table_id) VALUES(?1,?2,\'contracts\',?3)').bind(ORG,app.id,extra.id).run();
+  await send('POST',`/tables/${extra.id}/rows`,mika,{orgId:ORG,values:{'Contract number':'CT-42',Status:'Active'}});
+  const {roomFollowupAppTools,roomFollowupAppsStillAuthorized}=await import('../src/harness/followupRoomApps.js');
+  const source={org_id:ORG,channel:'b:ops',created_by:'9302'},used=new Map();
+  const tools=await roomFollowupAppTools(env,source,used);
+  const listing=JSON.parse(await tools.list_room_apps.run());
+  expect(listing.apps.find(candidate=>candidate.id===app.id).entities).toEqual(expect.arrayContaining([
+    expect.objectContaining({entityId:'primary',tableId:app.tableId}),
+    expect.objectContaining({entityId:'contracts',tableId:extra.id,name:'Contracts'}),
+  ]));
+  expect(tools.query_room_app_rows.parameters.required).toEqual(['appId','entityId','q']);
+  const found=JSON.parse(await tools.query_room_app_rows.run({appId:app.id,entityId:'contracts',q:'CT-42'}));
+  expect(found).toMatchObject({app:app.name,appId:app.id,appUrl:expect.stringContaining(`/apps/${app.id}/`),entityId:'contracts',tableId:extra.id,table:'Contracts',totalMatches:1});
+  expect(found.rows[0].values).toMatchObject({contract_number:'CT-42',status:'Active'});
+  expect(found.rows[0].url).toContain(`table=${extra.id}`);
+  expect(found.rows[0].url).toContain(`row=${found.rows[0].id}`);
+  expect(await roomFollowupAppsStillAuthorized(env,source,used)).toBe(true);
+  await env.DB.prepare('UPDATE hx_tables SET data_version=data_version+1 WHERE org_id=?1 AND id=?2').bind(ORG,extra.id).run();
+  expect(await roomFollowupAppsStillAuthorized(env,source,used)).toBe(false);
+});
+
 test('a Room App read is discarded when its sharing is revoked during the model turn', async () => {
   await send('PUT', '/orgs/mode', toru, { orgId: ORG, mode: 'harness' });
   const app = (await (await send('POST', '/apps', mika, { orgId: ORG, template: 'invoices', sample: false })).json()).app;
@@ -2371,7 +2398,7 @@ test('a Room App read is discarded when its sharing is revoked during the model 
   fetchMock.activate();
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, opts => {
     bodies.push(JSON.parse(opts.body));
-    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-secret', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, q: 'INV-SECRET-9' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
+    return { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'read-secret', type: 'function', function: { name: 'query_room_app_rows', arguments: JSON.stringify({ appId: app.id, entityId: 'primary', q: 'INV-SECRET-9' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 3 } };
   });
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, async opts => {
     bodies.push(JSON.parse(opts.body));

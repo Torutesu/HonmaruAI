@@ -39,6 +39,22 @@ test('missing peer grant creates one private pending card and no handoff or disp
   expect(card).toMatchObject({recipient_user_id:'owner',status:'pending'});
 });
 
+test('concurrent conflicting requests cannot reuse the winning approval card',async()=>{
+  const conflict={...move,operationId:'different-operation',brief:'Different requested work',messageBody:'Different handoff body'};
+  const results=await Promise.all([
+    request(),
+    requestAgentWakeApproval(env,assignment,{requesterLogin:'owner',targetName:'Target Agent',...conflict}),
+  ]);
+  expect(results.filter(result=>result.created)).toHaveLength(1);
+  expect(results.filter(result=>result.status===409)).toHaveLength(1);
+  const stored=await env.DB.prepare('SELECT operation_id,brief,message_body,card_id FROM hx_agent_wake_approvals WHERE org_id=?1 AND assignment_id=?2 AND source_generation=?3')
+    .bind(org,assignment.id,assignment.generation).first();
+  expect(stored).toMatchObject({operation_id:move.operationId,brief:move.brief,message_body:move.messageBody});
+  expect((await env.DB.prepare('SELECT card_id FROM cards WHERE org_id=?1 AND card_id LIKE \'agent-wake-%\'').bind(org).all()).results).toHaveLength(1);
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoffs WHERE org_id=?1').bind(org).first()).toBeNull();
+  expect(await env.DB.prepare('SELECT 1 FROM hx_agent_handoff_dispatch WHERE org_id=?1').bind(org).first()).toBeNull();
+});
+
 test.each([
   [undefined,'ten_minutes'],['once','once'],['ten_minutes','ten_minutes'],['thread','thread'],['room','room'],
 ])('approval stores the selected scope in D1 (option %s)',async(optionId,scope)=>{
