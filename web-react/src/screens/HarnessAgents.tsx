@@ -32,7 +32,7 @@ import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 // An agent is still written on the Agents screen; this is where it gets a
 // specialty, a tier, a memory, skills, and a say in who may call it.
 
-interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; specialty?: string; scope?: string; provider?: string | null; mine?: boolean; createdByName?: string | null; createdAt?: string }
+interface AgentFace { avatarUrl?: string | null; instructions?: string; id: string; handle: string; name: string; emoji?: string | null; description?: string; specialty?: string; scope?: string; provider?: string | null; mine?: boolean; createdByName?: string | null; createdAt?: string; lastActiveAt?: string | null }
 
 const TIER_HINT: Record<AgentProfile['tier'], string> = {
   lite: 'Fast and cheap, for simple work.',
@@ -223,6 +223,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
           : (profile.tier === 'lite' ? 'Fast' : profile.tier === 'max' ? 'Max' : 'Pro')}</dd>
         <dt><Icon name="you" size={14}/>{t('Created by')}</dt><dd>{agent.createdByName || '—'}</dd>
         <dt><Icon name="calendar" size={14}/>{t('Created at')}</dt><dd>{agent.createdAt && Number.isFinite(Date.parse(agent.createdAt)) ? new Date(agent.createdAt).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}</dd>
+        <dt><Icon name="clock" size={14}/>{t('Last active')}</dt><dd>{agent.lastActiveAt && Number.isFinite(Date.parse(agent.lastActiveAt)) ? new Date(agent.lastActiveAt).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' }) : t('No activity yet')}</dd>
         <dt><Icon name="lock" size={14}/>{t('Who may call it')}</dt><dd>{t(agent.scope === 'personal' ? 'Only its owner' : profile.access === 'private' ? 'Owner and assigned members' : profile.access === 'people' ? 'Some people' : 'Everyone')}</dd>
       </dl>
       <button className="btn-text" onClick={()=>setAccessDialog(true)}>{t('Agent access')}</button>

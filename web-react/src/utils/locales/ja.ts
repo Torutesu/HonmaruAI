@@ -4563,6 +4563,7 @@ Object.assign(table,{'Immutable table API contracts':'不変のテーブルAPI�
 Object.assign(table,{'Table API contracts are unavailable in this environment.':'この環境ではテーブルAPI契約を利用できません。'})
 Object.assign(table,{'Choose read sources from one or more Apps. Row writes require explicit permission for each selected entity.':'1つ以上のAppから読み取り元を選択できます。行の書き込みにはエンティティごとの明示的な許可が必要です。','No App/Table source selected.':'App/Tableソースが選択されていません。'})
 Object.assign(table, { 'Scroll tabs left': 'タブを左にスクロール', 'Scroll tabs right': 'タブを右にスクロール' })
+Object.assign(table, { 'Last active': '最終アクティブ日時', 'No activity yet': 'まだ利用されていません' })
 Object.assign(table, {
   'Connect ChatGPT to Honmaru': 'ChatGPTをHonmaruに接続',
   'mcp.chatgpt.lede': 'ChatGPTにこのリモートMCPサーバーを追加すると、ChatGPTからHonmaruを使えます。サインイン後、ワークスペースと許可する権限を選びます。',

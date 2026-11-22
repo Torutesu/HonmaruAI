@@ -35,6 +35,31 @@ test('the Agents directory searches visible Agents by name or specialty and reta
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
 })
 
+test('shows the last activity recorded for a visible Agent in its profile',async()=>{
+ let tree!:ReturnType<typeof create>
+ const lastActiveAt='2026-11-20T12:34:00.000Z'
+ vi.stubGlobal('fetch',vi.fn(async(input:string)=>{
+  const path=new URL(input).pathname
+  if(path==='/channels/agents')return {ok:true,json:async()=>({agents:[{id:'recent',name:'Recent agent',handle:'recent',scope:'team',lastActiveAt},{id:'quiet',name:'Quiet agent',handle:'quiet',scope:'team',lastActiveAt:null}]})}
+  if(path.endsWith('/profile'))return {ok:true,json:async()=>({profile:{specialty:'',tier:'standard',mentionOnly:false,access:'everyone',people:[]},canEdit:false})}
+  if(path.endsWith('/memory/scopes'))return {ok:true,json:async()=>({scopes:[]})}
+  if(path.endsWith('/memory/private-follow'))return {ok:false,json:async()=>({})}
+  if(path.endsWith('/memory'))return {ok:true,json:async()=>({memories:[],nextCursor:null,canEdit:false})}
+  if(path.endsWith('/skills'))return {ok:true,json:async()=>({skills:[]})}
+  if(path.endsWith('/apps'))return {ok:true,json:async()=>({connections:[],nativeConnections:[],remoteMcpConnections:[]})}
+  return {ok:true,json:async()=>({})}
+ }))
+ try{
+  await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
+  await act(async()=>tree.root.findByProps({'data-agent':'recent'}).props.onClick())
+  const markup=()=>JSON.stringify(tree.toJSON())
+  expect(markup()).toContain('Last active')
+  expect(markup()).toContain(new Date(lastActiveAt).toLocaleString('en',{dateStyle:'medium',timeStyle:'short'}))
+  await act(async()=>tree.root.findByProps({'data-agent':'quiet'}).props.onClick())
+  expect(markup()).toContain('No activity yet')
+ }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
 test('Skill-link import previews a public package, optionally installs it on a managed Agent, and reports the private copy',async()=>{
  let tree!:ReturnType<typeof create>
  const requests:Array<{url:URL;init?:RequestInit}> = []

@@ -361,6 +361,10 @@ test("@claude in a thread starts a session with the repo, vault and budget, and 
   expect(replies.map((m) => m.body)).toEqual(["Fixed the login redirect. PR: https://github.com/acme/app/pull/7"]);
   expect(replies.every((m) => m.kind === "agent" && m.authorName === "Claude")).toBe(true);
   const completion = replies[0];
+  const author = await env.DB.prepare("SELECT author_login, created_at FROM channel_messages WHERE org_id=?1 AND id=?2").bind(ORG, completion.id).first();
+  await env.DB.prepare("INSERT INTO channel_messages (id,org_id,channel,author_login,kind,body,created_at) VALUES ('other-org-agent-activity','other-workspace','b:cafe',?1,'agent','Private activity','2999-01-01T00:00:00.000Z')").bind(author.author_login).run();
+  const listedAgents = await (await get(`/channels/agents?${q({ orgId: ORG })}`, mika)).json();
+  expect(listedAgents.agents.find((agent) => agent.handle === "claude").lastActiveAt).toBe(author.created_at);
   const pushed = await env.DB.prepare("SELECT login, reason FROM push_queue WHERE org_id=?1 AND message_id=?2").bind(ORG, completion.id).all();
   expect(pushed.results).toEqual([{ login: "mika", reason: "thread" }]);
   const activity = await (await get(`/channels/activity?${q({ orgId: ORG })}`, mika)).json();

@@ -1618,9 +1618,18 @@ export async function handleChannels(request, env, url, { route, after }) {
     const list = async () => {
       const visible = await listAgents(env.DB, orgId, login);
       const profiles = await profilesFor(env.DB, orgId, visible.map((agent) => agent.id));
+      const activeByAuthor = new Map();
+      if (visible.length) {
+        const marks = visible.map((_, index) => `?${index + 2}`).join(",");
+        const activity = await env.DB.prepare(`SELECT author_login, MAX(created_at) AS lastActiveAt FROM channel_messages
+          WHERE org_id = ?1 AND kind = 'agent' AND author_login IN (${marks}) GROUP BY author_login`)
+          .bind(orgId, ...visible.map((agent) => `agent:${agent.id}`)).all();
+        for (const row of activity.results || []) activeByAuthor.set(row.author_login, row.lastActiveAt);
+      }
       return Promise.all(visible.map(async (agent) => ({
         ...await clientAgentForViewer(env, orgId, agent, members, login, { isAdmin }),
         specialty: profiles.get(agent.id)?.specialty || "",
+        lastActiveAt: activeByAuthor.get(`agent:${agent.id}`) || null,
       })));
     };
     if (request.method === "GET") return json({ agents: await list(), presets: presetsFor(who.user.locale || url.searchParams.get("locale") || "en"), privateCreation: await getMode(env.DB, orgId) === "harness" });

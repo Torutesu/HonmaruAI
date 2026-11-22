@@ -2794,6 +2794,7 @@ Object.assign(table,{'Immutable table API contracts':'Unveränderliche Tabellen-
 Object.assign(table,{'Table API contracts are unavailable in this environment.':'Tabellen-API-Verträge sind in dieser Umgebung nicht verfügbar.'})
 Object.assign(table,{'Choose read sources from one or more Apps. Row writes require explicit permission for each selected entity.':'Wähle Lesequellen aus einer oder mehreren Apps. Schreibzugriffe erfordern eine ausdrückliche Berechtigung für jede Entität.','No App/Table source selected.':'Keine App-/Tabellenquelle ausgewählt.'})
 Object.assign(table, { 'Scroll tabs left': 'Tabs nach links scrollen', 'Scroll tabs right': 'Tabs nach rechts scrollen' })
+Object.assign(table, { 'Last active': 'Zuletzt aktiv', 'No activity yet': 'Noch keine Aktivität' })
 Object.assign(table, {
   'Connect ChatGPT to Honmaru': 'ChatGPT mit Honmaru verbinden',
   'mcp.chatgpt.lede': 'Füge diesen Remote-MCP-Server hinzu, um Honmaru in ChatGPT zu nutzen. ChatGPT fordert dich auf, dich anzumelden, einen Workspace auszuwählen und Berechtigungen zu erlauben.',
