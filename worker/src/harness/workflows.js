@@ -2007,19 +2007,29 @@ export async function settleWorkflowApproval(env, orgId, card) {
       WHERE a.org_id=?1 AND a.run_id=?2 AND a.job_id=?3 AND a.node_id='program'`).bind(orgId,run.id,ref.codeWrite.jobId).first();
     let definition,programResult;try{definition=JSON.parse(saved?.definition||'null');programResult=JSON.parse(saved?.result||'{}')}catch{return null;}
     const staged=Array.isArray(programResult.connectionWrites)?programResult.connectionWrites:[];
-    const write=ref.codeWrite,step=definition?.steps?.[0],source=step?.sourceConnections?.find(item=>item.appId===write.appId&&item.name===write.name),writes=Array.isArray(write.writes)?write.writes:[];
+    const write=ref.codeWrite,step=definition?.steps?.[0],writes=Array.isArray(write.writes)?write.writes:[],sourceBindings=Array.isArray(write.sources)?write.sources:[write],boundSources=new Map();
+    for(const binding of sourceBindings){
+      const source=step?.sourceConnections?.find(item=>item.appId===binding.appId&&item.name===binding.name);
+      if(!source||source.method==='GET'||source.write!==true||String(source.ownerId)!==String(write.ownerId)||String(source.ownerId)!==String(binding.ownerId)||source.version!==binding.version||source.method!==binding.method){
+        await settleWorkflowProgram(env.DB,write.jobId,env,{writeDecision:true});return getRun(env.DB,orgId,run.id);
+      }
+      boundSources.set(`${source.appId}\0${source.name}`,source);
+    }
+    const sourceFor=item=>boundSources.get(`${item?.appId}\0${item?.name}`);
     if(!approved){await settleWorkflowProgram(env.DB,write.jobId,env,{writeDecision:true,declined:true});return getRun(env.DB,orgId,run.id);}
-    if(!source||source.method==='GET'||source.write!==true||String(source.ownerId)!==String(write.ownerId)||source.version!==write.version||source.method!==write.method
-      ||!writes.length||writes.length>3||JSON.stringify(staged)!==JSON.stringify(writes)||new Set(writes.map(item=>item.operationId)).size!==writes.length
-      ||writes.some(item=>item.appId!==source.appId||item.name!==source.name||item.ownerId!==source.ownerId||item.version!==source.version||item.method!==source.method||typeof item.operationId!=='string'||!item.body||typeof item.body!=='object'||Array.isArray(item.body))){
+    if(!writes.length||writes.length>3||!boundSources.size||JSON.stringify(staged)!==JSON.stringify(writes)||new Set(writes.map(item=>item.operationId)).size!==writes.length
+      ||writes.some(item=>{const source=sourceFor(item);return !source||item.ownerId!==source.ownerId||item.version!==source.version||item.method!==source.method||typeof item.operationId!=='string'||!item.body||typeof item.body!=='object'||Array.isArray(item.body)})){
       await settleWorkflowProgram(env.DB,write.jobId,env,{writeDecision:true});return getRun(env.DB,orgId,run.id);
     }
-    const current=await appConnectionsForViewer(env.DB,orgId,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));
-    if(current.error||!current.connections?.some(item=>item.name===source.name&&String(item.ownerId)===String(source.ownerId)&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1)){
-      await settleWorkflowProgram(env.DB,write.jobId,env,{writeDecision:true});return getRun(env.DB,orgId,run.id);
+    for(const source of boundSources.values()){
+      const current=await appConnectionsForViewer(env.DB,orgId,source.appId,definition.createdBy).catch(()=>({error:'unavailable'}));
+      if(current.error||!current.connections?.some(item=>item.name===source.name&&String(item.ownerId)===String(source.ownerId)&&Number(item.version)===source.version&&item.method===source.method&&Number(item.enabled)===1)){
+        await settleWorkflowProgram(env.DB,write.jobId,env,{writeDecision:true});return getRun(env.DB,orgId,run.id);
+      }
     }
     let approvedWrite=true;const externalWriteResults=[];
     for(const [index,item] of writes.entries()){
+      const source=sourceFor(item);
       const requestId='wf-'+hex(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(`${run.id}\0${source.appId}\0${source.name}\0${item.operationId}`))));
       const bodyHash=hex(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(item.body)))));
       let dispatch;
@@ -2028,7 +2038,7 @@ export async function settleWorkflowApproval(env, orgId, card) {
       if(prior){
         if(prior.body_hash===bodyHash&&prior.status==='succeeded'){externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'sent'});continue;}
         externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'unknown'});
-        externalWriteResults.push(...writes.slice(index+1).map(pending=>({appId:source.appId,name:source.name,method:source.method,operationId:pending.operationId,status:'not_sent'})));
+        externalWriteResults.push(...writes.slice(index+1).map(pending=>{const bound=sourceFor(pending);return {appId:bound.appId,name:bound.name,method:bound.method,operationId:pending.operationId,status:'not_sent'}}));
         approvedWrite=false;break;
       } else {
       const authorize=async()=>{
@@ -2052,7 +2062,7 @@ export async function settleWorkflowApproval(env, orgId, card) {
         if(raced?.body_hash===bodyHash&&raced.status==='succeeded')externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'sent'});
         else{
           externalWriteResults.push({appId:source.appId,name:source.name,method:source.method,operationId:item.operationId,status:'unknown'});
-          externalWriteResults.push(...writes.slice(index+1).map(pending=>({appId:source.appId,name:source.name,method:source.method,operationId:pending.operationId,status:'not_sent'})));
+          externalWriteResults.push(...writes.slice(index+1).map(pending=>{const bound=sourceFor(pending);return {appId:bound.appId,name:bound.name,method:bound.method,operationId:pending.operationId,status:'not_sent'}}));
           approvedWrite=false;break;
         }
       }else{

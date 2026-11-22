@@ -402,7 +402,7 @@ export async function handleGateways(request, env, url, input) {
             ||!item.body||typeof item.body!=='object'||Array.isArray(item.body))throw Error();
           return {appId:item.appId,name:item.name,ownerId:item.ownerId,version:item.version,method:item.method,operationId:item.operationId,body:item.body};
         });
-        if(new TextEncoder().encode(JSON.stringify(connectionWrites)).length>20000||new Set(connectionWrites.map(item=>item.operationId)).size!==connectionWrites.length||connectionWrites.some(item=>item.appId!==connectionWrites[0]?.appId||item.name!==connectionWrites[0]?.name||item.ownerId!==connectionWrites[0]?.ownerId||item.version!==connectionWrites[0]?.version||item.method!==connectionWrites[0]?.method))throw Error();
+        if(new TextEncoder().encode(JSON.stringify(connectionWrites)).length>20000||new Set(connectionWrites.map(item=>item.operationId)).size!==connectionWrites.length||connectionWrites.some(item=>item.ownerId!==connectionWrites[0]?.ownerId))throw Error();
       }catch{return failure('Invalid staged external Workflow request.',400);}
     }
     let finishedPayload = null;

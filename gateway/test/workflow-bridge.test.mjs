@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createStateBroker,validateStateRequest,createWorkflowOutputParser} from '../workflow-bridge.mjs';
 import {workflowSdkSource,normalizeWorkflowDraft,queryWorkflowTable,normalizeWorkflowInsert,insertWorkflowTableRow,normalizeWorkflowUpdate,normalizeWorkflowDelete,updateWorkflowTableRow,deleteWorkflowTableRow,normalizeWorkflowConnectionRequest,requestWorkflowConnection,stageWorkflowConnectionWrite,paginateWorkflowConnection} from '../workflow-sdk.mjs';
-import {validateWorkflowConnectionSources} from '../workflow-runner.mjs';
+import {validateWorkflowConnectionSources,validateWorkflowConnectionWrite} from '../workflow-runner.mjs';
 test('guest cannot choose activation identity or call arbitrary host operations',()=>{
  for(const request of [{id:1,method:'shell',params:{}},{id:1,method:'state.get',params:{runId:'other'}},{id:1,method:'state.set',params:{state:{},expectedRevision:0,owner:'other'}},{id:65,method:'state.get',params:{}}])assert.throws(()=>validateStateRequest(request));
 });
@@ -45,6 +45,18 @@ test('runner accepts only frozen GET or explicitly write-enabled App connection 
   [get,{...get}],
  ])assert.throws(()=>validateWorkflowConnectionSources(invalid),/Invalid App connection sources context/);
  assert.equal(validateWorkflowConnectionSources(undefined),undefined);
+});
+
+test('approved write batches may span frozen App connections owned by the same person only',()=>{
+ const sources=[
+  {appId:'app-1',name:'create_issue',ownerId:'owner-1',version:2,method:'POST',write:true},
+  {appId:'app-2',name:'add_comment',ownerId:'owner-1',version:4,method:'POST',write:true},
+  {appId:'app-3',name:'other_owner',ownerId:'owner-2',version:1,method:'PUT',write:true},
+ ];
+ assert.equal(validateWorkflowConnectionWrite(sources,{appId:'app-1',name:'create_issue'}),sources[0]);
+ assert.equal(validateWorkflowConnectionWrite(sources,{appId:'app-2',name:'add_comment'},'owner-1'),sources[1]);
+ assert.throws(()=>validateWorkflowConnectionWrite(sources,{appId:'app-3',name:'other_owner'},'owner-1'),/owner/);
+ assert.throws(()=>validateWorkflowConnectionWrite(sources,{appId:'missing',name:'none'}),/scope/);
 });
 
 test('Workflow SDK keeps App requests read-only and stages writes for per-run approval',async()=>{
