@@ -1,6 +1,9 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  '{actor} added a record to {entity}': '{actor} añadió un registro a {entity}',
+  '{actor} updated a record in {entity}': '{actor} actualizó un registro en {entity}',
+  '{actor} deleted a record from {entity}': '{actor} eliminó un registro de {entity}',
   'Could not verify the saved action version. Keep your current input and reload before continuing.': 'No se pudo verificar la versión guardada de la acción. Conserva tus entradas actuales y vuelve a cargar antes de continuar.',
   'Action code history': 'Historial del código de la acción',
   'Replace the saved draft for {name} with version {version}. Unsaved code in the editor will also be replaced. Continue?': 'Se reemplazará el borrador guardado de {name} por la versión {version}. También se reemplazará el código sin guardar del editor. ¿Continuar?',

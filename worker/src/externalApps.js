@@ -4,6 +4,7 @@ import { getMode } from "./harness/mode.js";
 import { drainWorkflowRowEvents } from './harness/workflowRowEventDispatch.js';
 import { sha256Hex } from "./auth.js";
 import { addRow, updateRow, deleteRow } from "./harness/tables.js";
+import { auditAppRowChange } from "./harness/appRowAudit.js";
 import { deliverExternalInvite } from "./externalInviteMail.js";
 import { sealCollaboratorRef, openCollaboratorRef, outsiderLabel, recipientFromParam } from "./harness/collaboratorRefs.js";
 import { MAX_PREVIEW_SOURCE, validateSource } from "./harness/customApps.js";
@@ -609,18 +610,21 @@ export async function handleExternalApps(request, env, url) {
     const input = await request.json().catch(() => null);
     if (request.method === "POST" && !rowId) {
       const result = await addRow(env.DB, orgId, tableId, input?.values, actor.user.github_id, "strict", null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
+      if(!result.error)await auditAppRowChange(env,request,{orgId,tableId,table,rowId:result.row.id,action:'create',actor:{type:'user',id:actor.user.login,name:actor.user.name||actor.user.login},after:result.row,source:'external_app'});
       if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row }, 201);
     }
     if (request.method === "PATCH" && rowId) {
       const result = await updateRow(env.DB, orgId, tableId, rowId, input?.values, actor.user.github_id, input?.expectedUpdatedAt, "strict", null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId));
+      if(!result.error)await auditAppRowChange(env,request,{orgId,tableId,table,rowId,action:'update',actor:{type:'user',id:actor.user.login,name:actor.user.name||actor.user.login},before:result.before,after:result.row,source:'external_app'});
       if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error, fields: result.fields }, result.status || 400)
         : json({ row: result.row });
     }
     if (request.method === "DELETE" && rowId) {
       const result = await deleteRow(env.DB, orgId, tableId, rowId, input?.expectedUpdatedAt, null, externalAppWriteGuard(orgId, appId, actor.user.github_id, tableId), { by: actor.user.github_id });
+      if(!result.error)await auditAppRowChange(env,request,{orgId,tableId,table,rowId,action:'delete',actor:{type:'user',id:actor.user.login,name:actor.user.name||actor.user.login},before:result.before,source:'external_app'});
       if(!result.error&&result.rowEventId)await drainWorkflowRowEvents(env,{eventId:result.rowEventId,limit:1});
       return result.error ? json({ message: result.error }, result.status || 400) : json({ deleted: true });
     }

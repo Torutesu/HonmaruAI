@@ -24,6 +24,7 @@ import { listFollowups, scheduleFollowup } from "./followups.js";
 import { drainWorkflowRowEvents } from "./workflowRowEventDispatch.js";
 import { callRemoteMcpTool, remoteMcpTools } from "./remoteMcp.js";
 import { audit } from "../audit.js";
+import { auditAppRowChange } from "./appRowAudit.js";
 import { DOCUMENT_EXPORT_TOOLS, callDocumentExportTool } from './documentMcp.js';
 
 export const HARNESS_TOOL_SCOPE = { get_workflow: "read", list_skill_shares: "read", revoke_skill_share: "write", set_skill_visibility: "write", share_skills_with_agents: "write", create_skill: "write", update_skill: "write", assign_skill_to_agent: "write", remove_skill_from_agent: "write", create_file_text: "write", request_public_file_share: "write", create_file_upload: "write", update_file_text: "write", delete_file: "write", restore_file_version: "write", create_document_export: "write", get_document_export: "read", cancel_document_export: "write", run_app_action: "execute", run_javascript: "execute", cancel_execution: "execute", add_row: "write", update_row: "write", create_workflow: "write", update_workflow: "write", pause_workflow: "write", run_workflow: "write", cancel_workflow_run: "write", recover_stalled_workflow_run: "write", restore_workflow_revision: "write", resume_workflow_safety: "write", discard_held_workflow_events: "write", replay_held_workflow_events: "write", rotate_workflow_webhook: "write", revoke_workflow_webhook: "write", schedule_followup: "write" };
@@ -444,6 +445,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       if (!(await mayWriteTableRecords(db, orgId, String(args.tableId || ""), by))) return err("No such table.");
       const r = await addRow(db, orgId, String(args.tableId || ""), args.values, by, undefined, by);
       if (r.error) return err(r.error);
+      await auditAppRowChange(env,request,{orgId,tableId:r.table.id,table:r.table,rowId:r.row.id,action:'create',actor:{type:'user',id:agent.login||String(by),name:agent.name||agent.login||null},after:r.row,source:'mcp'});
       if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }
@@ -452,6 +454,7 @@ export async function callHarnessTool(env, agent, name, args, request = null) {
       if (typeof args.expectedUpdatedAt !== 'string' || !args.expectedUpdatedAt) return err('expectedUpdatedAt is required. Read the current row version before editing it.');
       const r = await updateRow(db, orgId, String(args.tableId || ""), String(args.rowId || ""), args.values, by, args.expectedUpdatedAt, undefined, by);
       if (r.error) return err(r.error);
+      await auditAppRowChange(env,request,{orgId,tableId:r.table.id,table:r.table,rowId:r.row.id,action:'update',actor:{type:'user',id:agent.login||String(by),name:agent.name||agent.login||null},before:r.before,after:r.row,source:'mcp'});
       if(r.rowEventId)await drainWorkflowRowEvents(env,{eventId:r.rowEventId,limit:1});
       return out({ row: presentRow(r.row), rowVersions: { [r.row.id]: r.row.updatedAt } });
     }

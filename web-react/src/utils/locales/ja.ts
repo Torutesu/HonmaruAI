@@ -1,6 +1,9 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  '{actor} added a record to {entity}': '{actor}が{entity}にレコードを追加しました',
+  '{actor} updated a record in {entity}': '{actor}が{entity}のレコードを更新しました',
+  '{actor} deleted a record from {entity}': '{actor}が{entity}からレコードを削除しました',
   'Could not verify the saved action version. Keep your current input and reload before continuing.': '保存結果を確認できません。現在の入力を控えてから再読み込みしてください。',
   'Action code history': '処理コードの履歴',
   'Replace the saved draft for {name} with version {version}. Unsaved code in the editor will also be replaced. Continue?': '「{name}」の保存済み下書きを v{version} で置き換えます。現在の未保存コードも置き換わります。続けますか？',
