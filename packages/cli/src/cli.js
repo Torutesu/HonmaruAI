@@ -44,6 +44,8 @@ Usage:
   honmaru workspace room agent add <room-id> <agent-id> [--grant-access | --grant-access-members REF,REF] [--acknowledge-external-processing]
   honmaru workspace room agent remove <room-id> <agent-id>
   honmaru workspace room get <room-id>
+  honmaru workspace room visual status|remove <room-id> [--org-id ORG]
+  honmaru workspace room visual upload <room-id> --path IMAGE [--org-id ORG] [--content-type MIME]
   honmaru workspace room update <room-id> [--name NAME] [--mentioned-only true|false] [--main-agent ID|auto] [--icon-color COLOR]
   honmaru workspace room visibility set <room-id> --scope public|private --version N
   honmaru workspace room guidelines get <room-id>
@@ -72,6 +74,7 @@ Usage:
   honmaru workspace thread msg <room-id> <root-id> --text TEXT --request-id ID [--reply-to MESSAGE]
   honmaru workspace thread rename <room-id> <root-id> --title TITLE --version N
   honmaru workspace thread mute|unmute <room-id> <root-id>
+  honmaru workspace thread status|follow|leave <room-id> <root-id> [--org-id ORG]
   honmaru workspace thread pin|unpin <room-id> <root-id>
   honmaru workspace table list
   honmaru workspace table contract publish <table-id> --expected-updated-at ISO [--org-id ORG]
@@ -132,13 +135,13 @@ Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-  HONMARU_SESSION_TOKEN   Signed-in human session token (file administration, Skill shares, pinned contracts)
+HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, file administration, Skill shares, pinned contracts)
   HONMARU_ORG_ID          Workspace id for commands that address a specific workspace
 
-Agent commands use the API token. Public file-share decisions, permanent file purges, and
-Skill share-link create/import require a human session token and explicit --org-id; they never
-use the agent token. Skill import bearer tokens are read from the named --token-env variable,
-never from a positional argument.
+Agent commands use the API token. Room visual changes, Thread follow state, public file-share
+decisions, permanent file purges, and Skill share-link create/import require a human session
+token; they never use the agent token. Skill import bearer tokens are read from the named
+--token-env variable, never from a positional argument.
 `;
 
 const GATEWAY_HELP = `Honmaru local execution gateway
@@ -1119,6 +1122,14 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await decideWorkspaceFileShare({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "room" && operation === "visual") {
+      await roomVisualCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
+    if (aliasMode && resource === "thread" && ["status", "follow", "leave"].includes(operation)) {
+      await threadFollowCommand({ action: operation, positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
     if (aliasMode && resource === "file" && operation === "purge") {
       await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
@@ -1565,6 +1576,121 @@ async function purgeWorkspaceFile({ positional, options, apiUrl, sessionToken, f
     throw new Error("Honmaru returned an invalid purge result. Inspect the file history before retrying.");
   }
   writeOut(JSON.stringify(result));
+}
+
+async function roomVisualCommand({ action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  const usage = "honmaru workspace room visual status|remove <room-id> [--org-id ORG] | upload <room-id> --path IMAGE [--org-id ORG] [--content-type MIME]";
+  onlyFlags(options, ["orgId", "path", "contentType"]);
+  positionalCount(positional, 1, usage);
+  if (!["status", "upload", "remove"].includes(action)) throw new Error(usage);
+  const workspaceId = typeof options.orgId === "string" && options.orgId.trim() ? options.orgId.trim() : configuredOrgId;
+  if (typeof workspaceId !== "string" || !workspaceId.trim()) throw new Error("Set HONMARU_ORG_ID or pass --org-id for Room visual changes.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot change Room visuals.");
+  }
+  const roomId = positional[0];
+  const origin = new URL(mcpEndpoint(apiUrl)).origin;
+  const settingsUrl = new URL("/hx/rooms/settings", origin);
+  settingsUrl.searchParams.set("orgId", workspaceId);
+  settingsUrl.searchParams.set("channel", roomId);
+  let settingsResponse;
+  try {
+    settingsResponse = await fetcher(settingsUrl, { method: "GET", redirect: "error", headers: { "x-session-token": sessionToken, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  } catch {
+    throw new Error("Room settings could not be confirmed. The CLI did not change the visual.");
+  }
+  if (!settingsResponse.ok) throw new Error(`Honmaru rejected the Room settings read (HTTP ${settingsResponse.status}). The CLI did not change the visual.`);
+  const current = await settingsResponse.json().catch(() => null);
+  const version = current?.settings?.version;
+  if (!current || current.canEdit !== true || !Number.isSafeInteger(version) || version < 1) {
+    throw new Error("Honmaru did not return editable Room settings with a current version. The CLI did not change the visual.");
+  }
+  if (action === "status") {
+    if (options.path !== undefined || options.contentType !== undefined) throw new Error("--path and --content-type are only valid with Room visual upload.");
+    writeOut(JSON.stringify({ version, hasVisual: Number.isSafeInteger(current.visualVersion) }));
+    return;
+  }
+  if (action === "remove" && current.visualVersion === undefined) {
+    writeOut(JSON.stringify({ version, hasVisual: false, unchanged: true }));
+    return;
+  }
+
+  let body;
+  let contentType;
+  if (action === "upload") {
+    if (typeof options.path !== "string" || !options.path.trim()) throw new Error("--path is required for Room visual upload.");
+    const imagePath = resolve(options.path);
+    const file = await lstat(imagePath);
+    if (file.isSymbolicLink() || !file.isFile()) throw new Error("--path must point to a regular image file, not a symbolic link.");
+    if (file.size < 1 || file.size > 2 * 1024 * 1024) throw new Error("Room images must be between 1 byte and 2 MB.");
+    body = await readFile(imagePath);
+    if (body.length < 1 || body.length > 2 * 1024 * 1024) throw new Error("Room images must be between 1 byte and 2 MB.");
+    const byExtension = new Map([[".png", "image/png"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"], [".webp", "image/webp"], [".gif", "image/gif"]]);
+    contentType = options.contentType || byExtension.get(imagePath.slice(imagePath.lastIndexOf(".")).toLowerCase());
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType)) {
+      throw new Error("Use --content-type image/png, image/jpeg, image/webp, or image/gif for an unrecognized image extension.");
+    }
+  } else if (options.path !== undefined || options.contentType !== undefined) {
+    throw new Error("--path and --content-type are only valid with Room visual upload.");
+  }
+
+  const endpoint = new URL("/hx/rooms/visual", origin);
+  endpoint.searchParams.set("orgId", workspaceId);
+  endpoint.searchParams.set("channel", roomId);
+  endpoint.searchParams.set("version", String(version));
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: action === "upload" ? "POST" : "DELETE",
+      redirect: "error",
+      headers: { "x-session-token": sessionToken, ...(contentType ? { "content-type": contentType } : {}), accept: "application/json" },
+      ...(body ? { body } : {}),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("The Room visual change could not be confirmed. Reload Room settings before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) throw new Error(`Honmaru rejected the Room visual change (HTTP ${response.status}). Reload Room settings before retrying; the CLI did not retry.`);
+  const result = await response.json().catch(() => null);
+  if (!result || !Number.isSafeInteger(result.version) || typeof result.hasVisual !== "boolean" || result.hasVisual !== (action === "upload")) {
+    throw new Error("Honmaru returned an invalid Room visual result. Reload Room settings before retrying.");
+  }
+  writeOut(JSON.stringify(result));
+}
+
+async function threadFollowCommand({ action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  const usage = `honmaru workspace thread status|follow|leave <room-id> <root-id> [--org-id ORG]`;
+  onlyFlags(options, ["orgId"]);
+  positionalCount(positional, 2, usage);
+  const workspaceId = typeof options.orgId === "string" && options.orgId.trim() ? options.orgId.trim() : configuredOrgId;
+  if (typeof workspaceId !== "string" || !workspaceId.trim()) throw new Error("Set HONMARU_ORG_ID or pass --org-id to update Thread follow state.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot change personal Thread follow state.");
+  }
+  const endpoint = new URL("/channels/thread/notifications", new URL(mcpEndpoint(apiUrl)).origin);
+  endpoint.searchParams.set("orgId", workspaceId);
+  if (action === "status") {
+    endpoint.searchParams.set("channel", positional[0]);
+    endpoint.searchParams.set("messageId", positional[1]);
+  }
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: action === "status" ? "GET" : "PUT",
+      redirect: "error",
+      headers: { "x-session-token": sessionToken, ...(action === "status" ? {} : { "content-type": "application/json" }), accept: "application/json" },
+      ...(action === "status" ? {} : { body: JSON.stringify({ orgId: workspaceId, channel: positional[0], messageId: positional[1], left: action === "leave" }) }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("Thread follow state could not be confirmed. Run `honmaru workspace thread status` before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) throw new Error(`Honmaru rejected the Thread follow change (HTTP ${response.status}). The CLI did not retry.`);
+  const result = await response.json().catch(() => null);
+  if (!result || typeof result.left !== "boolean" || typeof result.muted !== "boolean" || (action !== "status" && result.left !== (action === "leave"))) {
+    throw new Error("Honmaru returned an invalid Thread follow state. Read the Thread state before retrying.");
+  }
+  writeOut(JSON.stringify({ conversationId: positional[0], threadId: positional[1], left: result.left, muted: result.muted }));
 }
 
 async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {

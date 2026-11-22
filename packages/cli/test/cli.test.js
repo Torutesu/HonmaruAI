@@ -818,6 +818,89 @@ test("Room visibility alias rejects invalid scope or missing version before MCP"
   assert.equal(requests, 0);
 });
 
+test("Room visual CLI uploads and removes through the human session and Room version fence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "honmaru-room-visual-"));
+  const imagePath = join(directory, "room.png");
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+  await writeFile(imagePath, png);
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({ url: String(url), method: init.method, type: init.headers["content-type"], body: init.body });
+    if (new URL(url).pathname === "/hx/rooms/settings") {
+      return new Response(JSON.stringify({ canEdit: true, settings: { version: 4 }, visualVersion: 3 }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ version: 5, hasVisual: init.method === "POST" }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-12345", HONMARU_ORG_ID: "org_1" };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  try {
+    assert.equal(await run(["workspace", "room", "visual", "status", "b:ops"]), 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { version: 4, hasVisual: true }); stdout.clear();
+    assert.equal(await run(["workspace", "room", "visual", "upload", "b:ops", "--path", imagePath]), 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { version: 5, hasVisual: true }); stdout.clear();
+    assert.equal(await run(["workspace", "room", "visual", "remove", "b:ops"]), 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { version: 5, hasVisual: false });
+    assert.equal(calls.length, 5);
+    assert.equal(calls[0].method, "GET");
+    assert.equal(new URL(calls[0].url).searchParams.get("orgId"), "org_1");
+    assert.equal(new URL(calls[0].url).searchParams.get("channel"), "b:ops");
+    assert.equal(calls[1].method, "GET");
+    assert.equal(calls[2].method, "POST");
+    assert.equal(new URL(calls[2].url).searchParams.get("version"), "4");
+    assert.equal(calls[2].type, "image/png");
+    assert.deepEqual(calls[2].body, png);
+    assert.equal(calls[4].method, "DELETE");
+    assert.equal(new URL(calls[4].url).searchParams.get("version"), "4");
+    assert.equal(stderr.read(), "");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Room visual and Thread follow aliases fail closed without human session context", async () => {
+  let requests = 0;
+  const fetcher = async () => { requests += 1; throw new Error("unexpected request"); };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_API_TOKEN: token };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "room", "visual", "remove", "b:ops", "--org-id", "org_1"]), 1);
+  assert.match(stderr.read(), /HONMARU_SESSION_TOKEN/); stderr.clear();
+  assert.equal(await run(["workspace", "thread", "leave", "b:ops", "msg_1", "--org-id", "org_1"]), 1);
+  assert.match(stderr.read(), /HONMARU_SESSION_TOKEN/);
+  assert.equal(requests, 0);
+});
+
+test("Thread follow and leave aliases sync the human preference across devices", async () => {
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({ url: String(url), init });
+    const body = init.body ? JSON.parse(init.body) : null;
+    return new Response(JSON.stringify({ muted: true, left: body ? body.left : true }), { status: 200 });
+  };
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_SESSION_TOKEN: "human-session-token-12345", HONMARU_ORG_ID: "org_2" };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "thread", "leave", "b:ops", "msg_1"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { conversationId: "b:ops", threadId: "msg_1", left: true, muted: true }); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "status", "b:ops", "msg_1"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { conversationId: "b:ops", threadId: "msg_1", left: true, muted: true }); stdout.clear();
+  assert.equal(await run(["workspace", "thread", "follow", "b:ops", "msg_1", "--org-id", "org_3"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { conversationId: "b:ops", threadId: "msg_1", left: false, muted: true });
+  assert.equal(calls.length, 3);
+  for (const call of [calls[0], calls[2]]) {
+    assert.equal(new URL(call.url).pathname, "/channels/thread/notifications");
+    assert.equal(call.init.method, "PUT");
+    assert.equal(call.init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  }
+  assert.equal(calls[1].init.method, "GET");
+  assert.equal(new URL(calls[1].url).searchParams.get("channel"), "b:ops");
+  assert.equal(new URL(calls[1].url).searchParams.get("messageId"), "msg_1");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { orgId: "org_2", channel: "b:ops", messageId: "msg_1", left: true });
+  assert.deepEqual(JSON.parse(calls[2].init.body), { orgId: "org_3", channel: "b:ops", messageId: "msg_1", left: false });
+  assert.equal(stderr.read(), "");
+});
+
 test("Room Agent access aliases inspect missing grants and grant only selected members", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {
