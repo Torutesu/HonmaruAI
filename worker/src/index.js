@@ -2317,7 +2317,7 @@ async function handle(request, env, url, ctx) {
       if (!orgId) return json({ message: "orgId is required" }, 400);
       if (!(await isMember(env.DB, orgId, session.github_id))) return json({ message: "not a member of this org" }, 403);
       { const held = await policyDenial(env, session, orgId); if (held) return json(held.body, held.status); }
-      const isAdmin = (membershipIsOurs(orgId) && await allowed(env.DB, orgId, session.github_id, "workspace.integrations")) || orgId.includes("/");
+      const isAdmin = await allowed(env.DB, orgId, session.github_id, "workspace.integrations");
       // Connecting with your own GitHub is yours to do as a member — it is
       // your credential, and the issues are written as you. A pasted token
       // and a disconnect are the workspace's, so an admin's (or the person

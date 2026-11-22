@@ -71,6 +71,27 @@ test("an admin connects a repository with a token that can write issues", async 
   expect((await (await get(`/connectors/github?orgId=${encodeURIComponent(ORG)}`, mika)).json()).canEdit).toBe(false);
 });
 
+test("repo-workspace integration changes require the GitHub Admin role", async () => {
+  const repoOrg = "acme/ops";
+  const { upsertMembership } = await import("../src/db.js");
+  await upsertMembership(env.DB, repoOrg, "email:toru@x.jp", "Admin");
+  await upsertMembership(env.DB, repoOrg, "email:mika@x.jp", "Maintainer");
+  await upsertMembership(env.DB, repoOrg, "email:out@x.jp", "Engineer");
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,composio_user,connected_by,updated_at) VALUES (?1,?2,?3,NULL,?4,?5)")
+    .bind(repoOrg, "acme/ops", "existing-token", "email:toru@x.jp", new Date().toISOString()).run();
+
+  for (const collaborator of [mika, out]) {
+    const response = await del("/connectors/github", collaborator, { orgId: repoOrg });
+    expect(response.status).toBe(403);
+    expect((await env.DB.prepare("SELECT repo,connected_by FROM org_github WHERE org_id=?1").bind(repoOrg).first()))
+      .toMatchObject({ repo: "acme/ops", connected_by: "email:toru@x.jp" });
+  }
+
+  const admin = await del("/connectors/github", toru, { orgId: repoOrg });
+  expect(admin.status).toBe(200);
+  expect(await env.DB.prepare("SELECT 1 FROM org_github WHERE org_id=?1").bind(repoOrg).first()).toBeNull();
+});
+
 test("a read-only token, a wrong name, a member, and a refused repository", async () => {
   fetchMock.get("https://api.github.com").intercept({ path: "/repos/acme/ops", method: "GET" }).reply(200, repoReply({ pull: true })).times(1);
   let res = await put("/connectors/github", toru, { orgId: ORG, repo: "acme/ops", token: "github_pat_abcdefghijklmnopqrstuvwxyz" });
