@@ -1,6 +1,6 @@
 {
-  "asOf": "2026-11-21",
-  "baseline": "d32f1d1821608a74c54c2df9f944b0c6dc7cea46",
+  "asOf": "2026-11-22",
+  "baseline": "5208161294e7227dea3bba6d4bf6fea924ce0d3a",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
     "partial": "基礎のみ。受入条件に未達項目あり",
@@ -1884,6 +1884,21 @@
         "reviewedAt": "2026-11-21",
         "verified": "ChatGPT向けOAuth authorization-server metadataにregistration_endpointを追加。匿名DCRはpublic authorization-code + S256 PKCE clientに限定し、redirect URIをHTTPS/loopback exact-match、scope allowlist、refresh grant、保管上限、休眠client cleanupで制御。tools/listにtool単位OAuth scope metadataを返し、対象Worker suite 49/49と全Worker suite 323 files / 3,702 testsが成功。DCR→Honmaru consent→PKCE token exchange→scoped tool listing→disconnect/revocationを統合テストで確認。PR #1141のexact-head CI、main CI、Worker deployが成功し、公開Worker healthはok:true、encryption.all=true。",
         "remaining": "実ChatGPT Custom MCP接続とKylon同一タスクの認証済み画面比較を完了するまで部分実装。"
+      }
+    },
+    {
+      "id": "KY-134",
+      "category": "Agents",
+      "requirement": "Agentプロフィールに最終アクティブ日時を表示",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog",
+      "code": "worker/src/channelRoutes.js; web-react/src/screens/HarnessAgents.tsx",
+      "acceptance": "閲覧可能なAgentプロフィールに、同じWorkspaceでAgentとして保存された最新メッセージ時刻を表示する。別Workspaceの活動時刻を混ぜず、権限のないAgentの存在・活動を漏らさない。活動記録がない場合は日時を捏造せず未活動表示にする。Simple modeは変更せず、新規課金なし。認証済みKylonの同一Agentプロフィール表示と比較する。",
+      "evidence": {
+        "reviewedAt": "2026-11-22",
+        "verified": "Kylon公式changelog (2026-11-14) は、Agentを利用できる人と管理者のAgentプロフィールに最終アクティブ時刻を表示すると記載。HonmaruはHarness Agent一覧を作る際に、同Workspaceかつ現在閲覧可能なAgentの返信時刻だけを集計し、プロフィールにローカライズして表示する。本文や別Workspaceの時刻は返さない。修正前にWorker回帰はlastActiveAt未定義で失敗し、修正後成功。別Workspaceへ同じauthorの未来時刻を置く隔離検証もWorker回帰に含む。Webプロフィールテストは表示日時と活動なし表示を検証。Web全体285 files・2,180 tests、TypeScript check、production build、parity inventory validator成功。",
+        "remaining": "全Worker suite完了、exact-head CI、production deployment、認証済みKylonとの同一Agent比較を確認する。"
       }
     }
   ]
