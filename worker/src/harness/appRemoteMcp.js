@@ -12,7 +12,7 @@ async function currentTool(db, orgId, serverId, toolName) {
 
 async function getGrant(db, orgId, appId, serverId, toolName) {
   return db.prepare(`SELECT owner_github_id AS ownerId,membership_since AS membershipSince,
-      source_agent_id AS sourceAgentId,created_at AS createdAt,granted_by AS grantedBy
+      source_agent_id AS sourceAgentId,created_at AS createdAt,COALESCE(grant_id,created_at) AS generation,granted_by AS grantedBy
     FROM hx_app_remote_mcp_grants WHERE org_id=?1 AND app_id=?2 AND server_id=?3 AND tool_name=?4`)
     .bind(orgId, appId, serverId, toolName).first();
 }
@@ -76,16 +76,17 @@ export async function changeAppRemoteMcpGrant(db, orgId, appId, actorId, input) 
   const allowed = agent.find(item => item.serverId === serverId)?.tools?.some(item => item.name === toolName && item.enabled);
   if (!allowed) return err('First grant this read-only tool to the source Agent.', 409);
   const at = new Date().toISOString();
-  await db.prepare(`INSERT INTO hx_app_remote_mcp_grants(org_id,app_id,owner_github_id,membership_since,source_agent_id,server_id,tool_name,granted_by,created_at)
-    SELECT ?1,?2,?3,?4,?5,?6,?7,?3,?8 WHERE EXISTS(
+  const grantId = crypto.randomUUID();
+  await db.prepare(`INSERT INTO hx_app_remote_mcp_grants(org_id,app_id,owner_github_id,membership_since,source_agent_id,server_id,tool_name,granted_by,created_at,grant_id)
+    SELECT ?1,?2,?3,?4,?5,?6,?7,?3,?8,?9 WHERE EXISTS(
       SELECT 1 FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id AND a.id=?2
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND m.created_at=?4 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
         AND (COALESCE((SELECT visibility FROM hx_app_access p WHERE p.org_id=a.org_id AND p.app_id=a.id),'workspace')='workspace' OR a.created_by=?3))
     ON CONFLICT(org_id,app_id,server_id,tool_name) DO UPDATE SET
-      owner_github_id=excluded.owner_github_id,membership_since=excluded.membership_since,source_agent_id=excluded.source_agent_id,granted_by=excluded.granted_by,created_at=excluded.created_at`)
-    .bind(orgId, appId, String(actorId), actor.membershipSince, source.id, serverId, toolName, at).run();
+      owner_github_id=excluded.owner_github_id,membership_since=excluded.membership_since,source_agent_id=excluded.source_agent_id,granted_by=excluded.granted_by,created_at=excluded.created_at,grant_id=excluded.grant_id`)
+    .bind(orgId, appId, String(actorId), actor.membershipSince, source.id, serverId, toolName, at, grantId).run();
   const grant = await getGrant(db, orgId, appId, serverId, toolName);
-  if (!grant || grant.createdAt !== at) return err('App, Agent, or membership access changed. Reload and try again.', 409);
+  if (!grant || grant.createdAt !== at || grant.generation !== grantId) return err('App, Agent, or membership access changed. Reload and try again.', 409);
   return { granted: true };
 }
 
@@ -117,7 +118,7 @@ export async function invokeAppRemoteMcp(env, orgId, appId, viewerId, input) {
     currentTool(env.DB, orgId, serverId, toolName),
     agentRemoteMcpConnections(env.DB, { orgId, agentId: source.id, githubId: grant.ownerId }),
   ]);
-  if (!appStillAccessible || sourceAfter?.id !== source.id || !sourceStillAccessible || !grantAfter || grantAfter.createdAt !== grant.createdAt ||
+  if (!appStillAccessible || sourceAfter?.id !== source.id || !sourceStillAccessible || !grantAfter || grantAfter.generation !== grant.generation ||
       !ownerAfter || ownerAfter.membershipSince !== grant.membershipSince || !toolAfter ||
       !agentAfter.find(item => item.serverId === serverId)?.tools?.some(item => item.name === toolName && item.enabled))
     return err('App, Agent, tool, or owner access changed during execution; the result was discarded.', 403);

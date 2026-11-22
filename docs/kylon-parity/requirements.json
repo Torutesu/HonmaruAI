@@ -1176,6 +1176,12 @@
         },
         "remaining": "DNS rebinding-safe egress is implemented through the explicit Mac Gateway and production-released. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete.",
         "verification": "docs/kylon-parity/verification.md; focused Worker tests 143/143 + 163/163; main CI 43085800275; Worker deploy 43085800394; Web deploy 43085800314",
+        "appGrantRevocationFence": {
+          "reviewedAt": "2026-11-23",
+          "scope": "App Remote MCP grants now carry an opaque generation ID. Invocation compares that ID after the Gateway call and discards the result when a grant is revoked and recreated during execution. Existing rows fall back to their created_at value until replaced by a new grant. Simple mode and workspace/Agent grant rules are unchanged.",
+          "verification": "The in-flight grant replacement regression fails against the previous implementation (200 instead of the required 403). harness-apps.test.js and migration.test.js passed 215/215; full Worker suite passed 3,727 tests across 324 files. Exact-head CI and production release pending.",
+          "remaining": "Other App principals, write-capable App tools, authenticated multi-user production acceptance, and direct Kylon comparison remain incomplete."
+        },
         "workflowCatalog": {
           "reviewedAt": "2026-11-17",
           "scope": "Workflow gets a dedicated Remote MCP catalog showing workspace-approved tools separately from normal Agent Connections. Every tool still requires its exact Agent-specific grant; write-capable tools also need the existing one-time approval bound to the run and rendered arguments. OAuth-disconnected servers are excluded from selection and the editor explains the required connection. Simple mode is unchanged.",
