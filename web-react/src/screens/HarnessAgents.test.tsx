@@ -1,15 +1,18 @@
 import React from 'react'
 import { act, create } from 'react-test-renderer'
-import { expect, test, vi } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 import { HarnessAgents, HarnessSkillImport } from './HarnessAgents'
+const { useMembersMock } = vi.hoisted(() => ({ useMembersMock: vi.fn(() => [] as any[]) }))
 vi.mock('../utils/i18n', () => ({ useT: () => (text: string) => text }))
-vi.mock('../utils/mentions', () => ({ useMembers: () => [] }))
+vi.mock('../utils/mentions', () => ({ useMembers: useMembersMock }))
 vi.mock('../components/AgentAvatar', () => ({ AgentAvatar: () => null }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/AgentAccessDialog',()=>({AgentAccessDialog:({onClose}:any)=><button data-testid="close-access" onClick={()=>onClose('team')}>Close access</button>}))
 vi.mock('../components/AgentPersona',()=>({AgentPersona:()=>null}))
 
-test('the Agents directory searches visible Agents by name or specialty and retains the tab controls',async()=>{
+beforeEach(() => useMembersMock.mockReturnValue([]))
+
+test('the Agents directory searches Agents by name or specialty and retains the tab controls',async()=>{
  let tree!:ReturnType<typeof create>
  const agents=[
   {id:'ledger',name:'Ledger',handle:'ledger',scope:'team',specialty:'Accounts payable'},
@@ -18,7 +21,7 @@ test('the Agents directory searches visible Agents by name or specialty and reta
  vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({agents})})))
  try{
   await act(async()=>{tree=create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()}/>)})
-  const search=()=>tree.root.findByProps({'aria-label':'Search agents by name or specialty'})
+  const search=()=>tree.root.findByProps({'aria-label':'Search members and agents'})
   const shown=()=>tree.root.findAllByType('button').filter(node=>typeof node.props['data-agent']==='string').map(node=>node.props['data-agent'])
   expect(search().props.type).toBe('search')
   expect(shown()).toEqual(['ledger','research'])
@@ -30,9 +33,30 @@ test('the Agents directory searches visible Agents by name or specialty and reta
   expect(shown()).toEqual(['ledger','research'])
   const peopleTab=tree.root.findAllByProps({role:'tab'}).find(tab=>tab.children.includes('People'))!
   await act(async()=>peopleTab.props.onClick())
-  expect(tree.root.findAllByProps({'aria-label':'Search agents by name or specialty'})).toHaveLength(0)
+  expect(tree.root.findAllByProps({'aria-label':'Search members and agents'})).toHaveLength(1)
   expect(shown()).toHaveLength(0)
  }finally{act(()=>tree?.unmount());vi.unstubAllGlobals()}
+})
+
+test('the All directory also filters members by name and People remains unchanged', async () => {
+  useMembersMock.mockReturnValue([{ ref: 'u:9202', name: 'Hanako Sato', handle: 'hanako', aliases: ['花子'], mine: false }])
+  const agents = [{ id: 'billing', name: 'Invoice reviewer', handle: 'invoice', scope: 'team', specialty: '請求書の照合' }]
+  let tree!: ReturnType<typeof create>
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ agents }) })))
+  try {
+    await act(async () => { tree = create(<HarnessAgents httpBase="https://example.test" orgId="one" sessionToken="session" onClose={vi.fn()} />) })
+    const search = () => tree.root.findByProps({ 'aria-label': 'Search members and agents' })
+    act(() => search().props.onChange({ target: { value: '花子' } }))
+    expect(JSON.stringify(tree.toJSON())).toContain('Hanako Sato')
+    expect(tree.root.findAllByProps({ 'data-agent': 'billing' })).toHaveLength(0)
+    act(() => search().props.onChange({ target: { value: '請求書' } }))
+    expect(JSON.stringify(tree.toJSON())).not.toContain('Hanako Sato')
+    expect(tree.root.findAllByProps({ 'data-agent': 'billing' })).toHaveLength(1)
+    await act(async () => tree.root.findAllByProps({ role: 'tab' }).find(tab => tab.children.includes('People'))!.props.onClick())
+    expect(tree.root.findAllByProps({ 'aria-label': 'Search members and agents' })).toHaveLength(1)
+    act(() => search().props.onChange({ target: { value: '花子' } }))
+    expect(JSON.stringify(tree.toJSON())).toContain('Hanako Sato')
+  } finally { act(() => tree?.unmount()); vi.unstubAllGlobals() }
 })
 
 test('shows the last activity recorded for a visible Agent in its profile',async()=>{

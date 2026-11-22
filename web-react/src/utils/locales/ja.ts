@@ -1230,6 +1230,8 @@ const table: Record<string, string> = {
   'Reading the channel…': 'チャンネルを読んでいます…',
   'Search members': 'メンバーを検索',
   'Search agents by name or specialty': 'エージェント名または専門分野で検索',
+  'Search members and agents': 'メンバーとエージェントを検索',
+  'No matching members or agents': '一致するメンバーまたはエージェントがありません',
   'Settings': '設定',
   'Start of the journal': 'ジャーナルの始まり',
   'The busiest conversations of the day. With an AI key, your AI writes this up.': 'その日いちばん盛り上がった会話です。AIキーがあれば、AIが要約を書きます。',

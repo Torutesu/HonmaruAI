@@ -1,3 +1,9 @@
+### 2026-11-23 — KY-121 Members directory search
+
+- Kylon changelogはMembers一覧を名前またはAgent specialtyで絞り込めると記載。既存のAgent名・専門分野検索を拡張し、All/Agentsの同じ検索欄でメンバー名・handle・aliasも検索します。NFKCで全角英数を通常表記へ正規化し、日本語も検索可能です。Peopleタブは従来どおり全件表示し、検索欄を隠します。
+- Agent結果は既存のACL可視 `/channels/agents` レスポンスだけを使い、検索用の追加取得はしません。Simple modeの画面・導線はこのHarness画面変更の対象外です。新規サービス・課金・DB変更はありません。
+- HarnessAgents関連16/16、Web全体286 files / 2,186 tests、TypeScript check付きproduction build、parity JSON parse、`git diff --check` が成功。Worker実装は既存のACL可視Agent APIを再利用。exact-head CI、merge、本番反映と認証済みKylonの同一タスク比較は未完了。
+
 ### 2026-11-16 — CLI thread creation alias (candidate)
 
 - Added `honmaru workspace thread create <room-id> --text ... --request-id ... [--file-ids ...]`. It creates a thread root through the existing user-authored, idempotent `send_message` MCP path; request IDs and attachment count are validated before network calls.

@@ -638,6 +638,8 @@ const table: Record<string, string> = {
   'Reading the channel…': 'Lecture du canal…',
   'Search members': 'Rechercher des membres',
   'Search agents by name or specialty': 'Rechercher des agents par nom ou spécialité',
+  'Search members and agents': 'Rechercher des membres et des agents',
+  'No matching members or agents': 'Aucun membre ou agent correspondant',
   'Settings': 'Réglages',
   'Start of the journal': 'Début du journal',
   'The busiest conversations of the day. With an AI key, your AI writes this up.': 'Les conversations les plus actives du jour. Avec une clé d’IA, votre IA en fait la synthèse.',

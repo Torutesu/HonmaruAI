@@ -79,7 +79,7 @@
 | KY-024 | Codex/Claude Code/Devinの実行選択 | 一部 | P1 | [worker/src/teammates.js](../../worker/src/teammates.js) | クラウドAPI接続とローカルCLIを区別して実機で検証 |
 | KY-025 | ACP接続契約 | 一部 | P2 | [gateway/acp.mjs](../../gateway/acp.mjs), [worker/src/teammates.js](../../worker/src/teammates.js) | ACP v1 stdio initialize/session new/load/prompt/cancel、ホストのfs/terminal能力無効化、agent所有の既存認証利用、Mac側allowlist、ACP agentチームメイト、スレッド回答の取り込みを実装。2026-11-01、既存OpenCode認証で合成プロンプトと `list_apps` MCPの実機往復成功（実Workspaceデータなし）。Workspace MCP read-only連携はHarness内で明示opt-in、既定off、Simpleでは通常ACPを継続しtoolsなし、6ツール・ユーザー/agent/resource ACL再確認、lease/node認証、query上限。進捗はリース認証付きで開始元会話に要約を一時配信し、引数・思考本文は送らない。権限要求はMac側allowlistのdefault（既定許可）/strict（読み取り系のみ許可）で自動応答。取消はsession/cancelと$/cancel_requestを送って応答猶予を設け、無応答時は5秒以内にプロセスを終了。Gateway/Worker合成試験とUIテスト済み。複数ACP実装の再接続・二台同期、実機QAは残る |
 | KY-026 | 既存ChatGPT契約でクラウドCodex | 要検証 | P2 | [worker/src/teammates.js](../../worker/src/teammates.js) | 提供元条件と対応実行方式の確認後に隔離環境で検証 |
-| KY-121 | Agent一覧を名前・専門分野で絞り込む | 一部 | P1 | [worker/src/channelRoutes.js](../../worker/src/channelRoutes.js), [HarnessAgents.tsx](../../web-react/src/screens/HarnessAgents.tsx) | Agents画面の名前／専門分野検索と可視Agent限定の取得を実装。People一覧は維持。認証済みKylon画面と比較し、PR/本番反映後のACL受入を確認する |
+| KY-121 | Members一覧を名前またはAgent専門分野で絞り込む | 一部 | P1 | [HarnessAgents.tsx](../../web-react/src/screens/HarnessAgents.tsx), [agentDirectorySearch.ts](../../web-react/src/utils/agentDirectorySearch.ts) | AllではメンバーとAgent、Peopleではメンバー、AgentsではAgentを、同じ検索欄で名前・handle・alias・専門分野により絞り込む。NFKC正規化、日本語・全角英数、空状態を回帰テスト。Agent候補は既存ACL可視一覧に限定。認証済みKylonとの操作比較と本番受入は残る。 |
 
 ## Memory
 
