@@ -6,6 +6,7 @@ import './PhoneDestinationComposer.css'
 export type PhoneDraftDestination = { key: string; view: string; name: string; kind: string; threadId?: string; label?: string }
 
 type Props = {
+  intent?: 'message' | 'thread'
   destinations: PhoneDraftDestination[]
   api: { httpBase: string; orgId: string; sessionToken: string }
   onClose: () => void
@@ -13,7 +14,7 @@ type Props = {
   t: (value: string) => string
 }
 
-export function PhoneDestinationComposer({ destinations, api, onClose, onChoose, t }: Props) {
+export function PhoneDestinationComposer({ intent = 'message', destinations, api, onClose, onChoose, t }: Props) {
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
   const [serverSuggestions, setServerSuggestions] = useState<PhoneDraftDestination[]>([])
@@ -40,7 +41,7 @@ export function PhoneDestinationComposer({ destinations, api, onClose, onChoose,
           return Array.isArray(data?.messages) ? data.messages : []
         }))
         if (controller.signal.aborted) return
-        const byView = new Map(destinations.filter((item) => item.view).map((item) => [item.view, item]))
+        const byView = new Map(destinations.filter((item) => item.view && (intent !== 'thread' || item.kind === 'channel')).map((item) => [item.view, item]))
         const found = new Map<string, { item: PhoneDraftDestination; score: number }>()
         for (const message of results.flat() as Array<{ id?: string; channel?: string; parentId?: string | null; replyCount?: number; body?: string; threadTitle?: string | null }>) {
           if (!message.id || !message.channel) continue
@@ -51,7 +52,7 @@ export function PhoneDestinationComposer({ destinations, api, onClose, onChoose,
           const score = rankTokens.reduce((total, word) => total + (searchable.includes(word) ? 1 : 0), 0)
           if (!score) continue
           const parent = message.parentId || ((message.replyCount || 0) > 0 ? message.id : undefined)
-          if (parent) {
+          if (parent && intent !== 'thread') {
             const item = { ...room, threadId: parent, label: `${room.name} · ${message.threadTitle || (message.body || '').replace(/\s+/g, ' ').slice(0, 72)}` }
             const key = `thread:${room.view}:${parent}`
             const oldHit = found.get(key)
@@ -64,29 +65,31 @@ export function PhoneDestinationComposer({ destinations, api, onClose, onChoose,
       } catch { if (!controller.signal.aborted) setServerSuggestions([]) }
     }, 250)
     return () => { controller.abort(); clearTimeout(timer) }
-  }, [draft, api.httpBase, api.orgId, api.sessionToken, destinations])
+  }, [draft, api.httpBase, api.orgId, api.sessionToken, destinations, intent])
   const suggestions = useMemo(() => {
     const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean)
-    const local = destinations.filter((destination) => !terms.length || terms.some((term) => destination.name.toLocaleLowerCase().includes(term)))
+    const local = destinations.filter((destination) => (intent !== 'thread' || destination.kind === 'channel') && (!terms.length || terms.some((term) => destination.name.toLocaleLowerCase().includes(term))))
     const all = [...serverSuggestions, ...local]
     return [...new Map(all.map((item) => [item.threadId ? `thread:${item.view}:${item.threadId}` : item.key, item])).values()].slice(0, 8)
-  }, [destinations, query, serverSuggestions])
+  }, [destinations, intent, query, serverSuggestions])
+
+  const title = t(intent === 'thread' ? 'Start a new thread' : 'Draft a message')
 
   return (
-    <Sheet label={t('Draft a message')} onClose={onClose} className="phone-destination-sheet">
-      <header className="phone-destination-head"><h2>{t('Draft a message')}</h2><button type="button" onClick={onClose} aria-label={t('Close')}>×</button></header>
-      <label className="phone-destination-label" htmlFor="phone-draft-message">{t('What would you like to say?')}</label>
+    <Sheet label={title} onClose={onClose} className="phone-destination-sheet">
+      <header className="phone-destination-head"><h2>{title}</h2><button type="button" onClick={onClose} aria-label={t('Close')}>×</button></header>
+      <label className="phone-destination-label" htmlFor="phone-draft-message">{t(intent === 'thread' ? 'Describe the work you want to start' : 'What would you like to say?')}</label>
       <textarea className="phone-destination-field" id="phone-draft-message" data-sheet-autofocus="true" aria-describedby="phone-draft-note" value={draft} onChange={(event) => setDraft(event.target.value)} rows={4} autoFocus />
-      <label className="phone-destination-label" htmlFor="phone-draft-destination">{t('Choose a destination')}</label>
-      <input className="phone-destination-field" id="phone-draft-destination" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search conversations and rooms')} />
+      <label className="phone-destination-label" htmlFor="phone-draft-destination">{t(intent === 'thread' ? 'Choose a room' : 'Choose a destination')}</label>
+      <input className="phone-destination-field" id="phone-draft-destination" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t(intent === 'thread' ? 'Search rooms' : 'Search conversations and rooms')} />
       <p className="phone-destination-note" id="phone-draft-note">{t('Choosing opens a saved draft. Nothing is sent until you send it.')}</p>
-      <div className="msheet-rows" role="list" aria-label={t('Available destinations')}>
+      <div className="msheet-rows" role="list" aria-label={t(intent === 'thread' ? 'Available rooms' : 'Available destinations')}>
         {suggestions.map((destination) => (
           <div role="listitem" key={destination.threadId ? `thread:${destination.view}:${destination.threadId}` : destination.key}>
             <SheetRow icon={destination.kind === 'channel' ? 'hash' : 'message'} label={destination.label || destination.name} onClick={() => onChoose(destination, draft)} data="draft-destination" />
           </div>
         ))}
-        {!suggestions.length && <p role="status">{t('No matching conversations or rooms')}</p>}
+        {!suggestions.length && <p role="status">{t(intent === 'thread' ? 'No matching rooms' : 'No matching conversations or rooms')}</p>}
       </div>
       <footer className="phone-destination-actions"><button type="button" onClick={onClose}>{t('Cancel')}</button></footer>
     </Sheet>
