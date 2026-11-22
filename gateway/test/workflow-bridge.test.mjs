@@ -247,6 +247,17 @@ test('table.query selects only explicitly bound App entities',async()=>{
  await assert.rejects(()=>queryWorkflowTable({entityId:'bad-id!'},bridge),/Invalid App entity/);
 });
 
+test('table.query distinguishes the same entity key across explicitly bound Apps',async()=>{
+ const requests=[],bridge={tableSources:[
+  {appId:'app-a',entityId:'records',tableId:'table-a'},
+  {appId:'app-b',entityId:'records',tableId:'table-b'},
+ ],queryTable:async params=>{requests.push(params);return {rows:[],complete:true,cursor:null}}};
+ await queryWorkflowTable({appId:'app-b',entityId:'records'},bridge);
+ assert.deepEqual(requests[0],{appId:'app-b',entityId:'records',where:{},q:'',pageSize:100});
+ await assert.rejects(()=>queryWorkflowTable({entityId:'records'},bridge),/Choose an explicitly authorized App and entity/);
+ await assert.rejects(()=>queryWorkflowTable({appId:'app-c',entityId:'records'},bridge),/no explicitly authorized App\/Table source/);
+});
+
 test('table.insert requires an explicitly writable entity and sends only bounded row values',async()=>{
  const calls=[],bridge={tableSources:[{appId:'app',entityId:'primary',tableId:'table-a',write:true},{appId:'app',entityId:'details',tableId:'table-b'}],insertTable:async value=>{calls.push(value);return {staged:true,index:1}}};
  assert.deepEqual(await insertWorkflowTableRow({entityId:'primary',values:{name:'Alpha'}},bridge),{staged:true,index:1});

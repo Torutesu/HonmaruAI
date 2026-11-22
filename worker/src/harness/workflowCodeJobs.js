@@ -97,13 +97,13 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  }
  const tableSources=workflowProgramSources(step);
  if(step.sourceAppId||step.sourceEntityId||step.sourceTableId||step.sourceTables!==undefined){
-  if(!step.sourceAppId||!tableSources.length||tableSources.length>20||new Set(tableSources.map(source=>source.entityId)).size!==tableSources.length
-   ||!await mayUseApp(db,orgId,step.sourceAppId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+  if(!tableSources.length||tableSources.length>20||new Set(tableSources.map(source=>`${source.appId}\0${source.entityId}`)).size!==tableSources.length
+   ||tableSources.some(source=>typeof source.appId!=='string'||!source.appId))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
   for(const source of tableSources){
    const mapped=source.entityId==='primary'
-    ? await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,step.sourceAppId).first()
-    : await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,step.sourceAppId,source.entityId).first();
-   if(mapped?.table_id!==source.tableId||!await mayUseTable(db,orgId,source.tableId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
+    ? await db.prepare('SELECT table_id FROM hx_apps WHERE org_id=?1 AND id=?2').bind(orgId,source.appId).first()
+    : await db.prepare('SELECT table_id FROM hx_app_entities WHERE org_id=?1 AND app_id=?2 AND entity_key=?3').bind(orgId,source.appId,source.entityId).first();
+   if(mapped?.table_id!==source.tableId||!await mayUseApp(db,orgId,source.appId,definition.createdBy)||!await mayUseTable(db,orgId,source.tableId,definition.createdBy))return {status:'failed',error:'The Workflow App/Table source is no longer accessible.'};
   }
  }
  const node=await db.prepare('SELECT * FROM hx_gateways WHERE org_id=?1 AND id=?2 AND revoked_at IS NULL').bind(orgId,step.gatewayId).first();
@@ -115,7 +115,7 @@ export async function enqueueWorkflowProgram(db,{orgId,runId,at=Date.now()}) {
  const source=await db.prepare('SELECT channel FROM hx_workflow_sources WHERE org_id=?1 AND workflow_id=?2').bind(orgId,run.workflow_id).first();
  const input=run.input?JSON.parse(run.input):null;
  const trigger=workflowProgramTrigger(run.trigger,input);
- const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(step.sourceAppId?{tableSources:tableSources.map(item=>({appId:step.sourceAppId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),...(connectionSources.length?{connectionSources}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
+ const payload=JSON.stringify({workflowProgram:true,code:step.code,context:{workspaceId:orgId,...(source?{roomId:source.channel}:{}),...(tableSources.length?{tableSources:tableSources.map(item=>({appId:item.appId,entityId:item.entityId,tableId:item.tableId,...(item.write?{write:true}:{}),...(item.mutate?{mutate:true}:{})}))}:{}),...(connectionSources.length?{connectionSources}:{}),timezone:definition.trigger?.timezone||'UTC',trigger}});
  if(new TextEncoder().encode(payload).length>65536)return {status:'failed',error:'Workflow code and input exceed the execution limit.'};
  const nodeId='program',fingerprint=await digest(run.definition),lease=await claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effect:true,at,ttl:300000});
  if(lease.status==='done')return lease.result;
@@ -236,19 +236,18 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
  const requestedMutations=Array.isArray(programResult.tableMutations)?programResult.tableMutations.map(item=>({...item})):legacyWrites.map(item=>({...item,operation:'insert'}));
  if(programResult.tableMutations!==undefined&&(!Array.isArray(programResult.tableMutations)||legacyWrites.length)||requestedMutations.length>4)writeFailed=true;
  if(binding.job_status==='succeeded'&&requestedMutations.length){
-  if(!step?.sourceAppId)writeFailed=true;
   const mutationTargets=new Set();
   for(const item of requestedMutations){
    if(writeFailed)break;
    const operation=item?.operation??'insert';
-   if(!item||typeof item!=='object'||!['insert','update','delete'].includes(operation)||Object.keys(item).some(key=>!['operation','entityId','values','rowId','expectedUpdatedAt'].includes(key))||typeof item.entityId!=='string'){writeFailed=true;break;}
-   const source=sources.find(value=>value.entityId===item.entityId&&(operation==='insert'?value.write===true:value.mutate===true));
+   if(!item||typeof item!=='object'||!['insert','update','delete'].includes(operation)||Object.keys(item).some(key=>!['operation','appId','entityId','values','rowId','expectedUpdatedAt'].includes(key))||typeof item.entityId!=='string'){writeFailed=true;break;}
+   const source=sources.find(value=>value.entityId===item.entityId&&(item.appId===undefined||value.appId===item.appId)&&(operation==='insert'?value.write===true:value.mutate===true));
    if(!source){writeFailed=true;break;}
    if(operation!=='insert'){
     if(typeof item.rowId!=='string'||!item.rowId||item.rowId.length>200||typeof item.expectedUpdatedAt!=='string'||!Number.isFinite(Date.parse(item.expectedUpdatedAt))){writeFailed=true;break;}
-    const key=`${source.entityId}\0${item.rowId}`;if(mutationTargets.has(key)){writeFailed=true;break;}mutationTargets.add(key);
+    const key=`${source.appId}\0${source.entityId}\0${item.rowId}`;if(mutationTargets.has(key)){writeFailed=true;break;}mutationTargets.add(key);
    }
-   const writeGuard={sql:start=>workflowProgramTableWriteGuard(start,operation==='insert'?'write':'mutate'),binds:[binding.org_id,binding.run_id,step.sourceAppId,source.entityId,source.tableId,jobId,binding.gateway_id,binding.lease_hash,binding.job_finished_at,JSON.parse(binding.definition).createdBy]};
+   const writeGuard={sql:start=>workflowProgramTableWriteGuard(start,operation==='insert'?'write':'mutate'),binds:[binding.org_id,binding.run_id,source.appId,source.entityId,source.tableId,jobId,binding.gateway_id,binding.lease_hash,binding.job_finished_at,JSON.parse(binding.definition).createdBy]};
    const by=JSON.parse(binding.definition).createdBy;
    const positionOffset=writeOffsets.get(source.tableId)||0;
    const row=operation==='insert'?await addRow(db,binding.org_id,source.tableId,item.values,by,'strict',by,writeGuard,{deferWrite:true,positionOffset}):operation==='update'?await updateRow(db,binding.org_id,source.tableId,item.rowId,item.values,by,item.expectedUpdatedAt,'strict',by,writeGuard,{deferWrite:true}):await deleteRow(db,binding.org_id,source.tableId,item.rowId,item.expectedUpdatedAt,by,writeGuard,{by,deferWrite:true});
@@ -339,7 +338,8 @@ function workflowProgramTableWriteGuard(start,permission='write'){
    AND EXISTS(SELECT 1 FROM hx_workflows w JOIN memberships m ON m.org_id=w.org_id AND m.user_github_id=${user}
     WHERE w.org_id=${org} AND w.id=r.workflow_id AND w.created_by=${user} AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest')
    AND EXISTS(SELECT 1 FROM json_each(d.definition,'$.steps[0].sourceTables') source
-    WHERE json_extract(source.value,'$.entityId')=${entity} AND json_extract(source.value,'$.tableId')=${table} AND json_extract(source.value,'$.${permission}')=1)
+    WHERE COALESCE(json_extract(source.value,'$.appId'),json_extract(d.definition,'$.steps[0].sourceAppId'))=${app}
+     AND json_extract(source.value,'$.entityId')=${entity} AND json_extract(source.value,'$.tableId')=${table} AND json_extract(source.value,'$.${permission}')=1)
    AND EXISTS(SELECT 1 FROM hx_apps a WHERE a.org_id=${org} AND a.id=${app} AND
     ((${entity}='primary' AND a.table_id=${table}) OR EXISTS(SELECT 1 FROM hx_app_entities e WHERE e.org_id=a.org_id AND e.app_id=a.id AND e.entity_key=${entity} AND e.table_id=${table}))))
   AND EXISTS(SELECT 1 FROM memberships active WHERE active.org_id=${org} AND active.user_github_id=${user} AND LOWER(TRIM(COALESCE(active.role,'guest')))!='guest')
