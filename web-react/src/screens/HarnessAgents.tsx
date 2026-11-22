@@ -18,6 +18,7 @@ import { EditAgentProfile } from '../components/EditAgentProfile'
 import { AgentPersona } from '../components/AgentPersona'
 import type { ClientAgent } from '../utils/agents'
 import { useMembers, type Mentionable } from '../utils/mentions'
+import { agentMatchesDirectoryQuery, memberMatchesDirectoryQuery } from '../utils/agentDirectorySearch'
 import { Avatar } from '../components/Avatar'
 import { AgentAvatarPreview } from '../components/AgentAvatarPreview'
 import { AgentAvatar } from '../components/AgentAvatar'
@@ -57,7 +58,7 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
   useEffect(()=>{if(!initialSelected.current && agents!==null){initialSelected.current=true;if(props.initialAgentId)setOpen(agents.find(a=>a.id===props.initialAgentId)||null)}},[agents,props.initialAgentId])
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<'all' | 'people' | 'agents'>('all')
-  const [agentQuery, setAgentQuery] = useState('')
+  const [directoryQuery, setDirectoryQuery] = useState('')
   const [accessRevision,setAccessRevision]=useState(0)
   const members = useMembers(props.httpBase, props.orgId, props.sessionToken)
   const { error, act } = useAct()
@@ -77,16 +78,21 @@ const ScopedHarnessAgents: React.FC<AgentsProps> = (props) => {
     })
   }, [act, props.httpBase, props.orgId, props.sessionToken,accessRevision])
 
+  const visibleMembers = filter === 'agents' ? [] : members.filter(member => memberMatchesDirectoryQuery(member, directoryQuery))
+  const visibleAgents = filter === 'people' ? [] : (agents || []).filter(agent => agentMatchesDirectoryQuery(agent, directoryQuery))
+  const hasDirectoryQuery = directoryQuery.trim().length > 0
+
   return <div className="screen hx-members-screen">
     <aside className="hx-members-list">
       <header className="hx-chat-top"><h1>{t('Members')}</h1><details className="hx-member-add"><summary aria-label={t('New')}><Icon name="plus" size={17} /></summary><div className="hx-rail-menu"><button onClick={props.onManageTeam}>{t('Invite people')}</button><button onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); setCreating(true) }}>{t('New agent')}</button></div></details></header>
       <div className="hx-chat-filters" role="tablist" aria-label={t('Members')}>
         {(['all', 'people', 'agents'] as const).map(f => <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>{t(f === 'all' ? 'All' : f === 'people' ? 'People' : 'Agents')}</button>)}
       </div>
-      {filter !== 'people' && <div className="hx-agent-search"><input className="cl-input" type="search" value={agentQuery} onChange={event=>setAgentQuery(event.target.value)} placeholder={t('Search agents by name or specialty')} aria-label={t('Search agents by name or specialty')}/></div>}
+      <div className="hx-agent-search"><input className="cl-input" type="search" value={directoryQuery} onChange={event=>setDirectoryQuery(event.target.value)} placeholder={t('Search members and agents')} aria-label={t('Search members and agents')}/></div>
       {error && <p role="alert">{error}</p>}
-      {filter !== 'agents' && members.map(m => <button className={`hx-member-row${person?.ref === m.ref ? ' on' : ''}`} key={m.ref} onClick={() => { setPerson(m); setOpen(null) }}><Avatar name={m.name} url={m.avatarUrl} round size={40} /><span><b>{m.name}</b><small>{m.mine ? t('You') : t('Member')}</small></span></button>)}
-      {filter !== 'people' && agents?.filter(a=>`${a.name} ${a.specialty || ''}`.normalize('NFKC').toLowerCase().includes(agentQuery.trim().normalize('NFKC').toLowerCase())).map(a => <button className={`hx-member-row${open?.id === a.id ? ' on' : ''}`} key={a.id} onClick={() => { setOpen(a); setPerson(null) }} data-agent={a.id}><AgentAvatar agent={a} className="hx-member-avatar" /><span><b>{a.name}</b><small>{a.specialty || t('Agent')}{a.scope === 'personal' ? ` · ${t('Only you')}` : ''}</small></span></button>)}
+      {visibleMembers.map(m => <button className={`hx-member-row${person?.ref === m.ref ? ' on' : ''}`} key={m.ref} onClick={() => { setPerson(m); setOpen(null) }}><Avatar name={m.name} url={m.avatarUrl} round size={40} /><span><b>{m.name}</b><small>{m.mine ? t('You') : t('Member')}</small></span></button>)}
+      {visibleAgents.map(a => <button className={`hx-member-row${open?.id === a.id ? ' on' : ''}`} key={a.id} onClick={() => { setOpen(a); setPerson(null) }} data-agent={a.id}><AgentAvatar agent={a} className="hx-member-avatar" /><span><b>{a.name}</b><small>{a.specialty || t('Agent')}{a.scope === 'personal' ? ` · ${t('Only you')}` : ''}</small></span></button>)}
+      {agents !== null && hasDirectoryQuery && !visibleMembers.length && !visibleAgents.length && <p className="hx-members-note">{t('No matching members or agents')}</p>}
       {agents === null && <p className="hx-members-note">{t('Loading…')}</p>}
     </aside>
     <main className="hx-member-detail">

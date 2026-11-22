@@ -1693,16 +1693,16 @@
     {
       "id": "KY-121",
       "category": "Agents",
-      "requirement": "Agent一覧を名前・専門分野で絞り込む",
+      "requirement": "Members一覧を名前またはAgent専門分野で絞り込む",
       "status": "partial",
       "priority": "P1",
       "source": "https://kylon.io/changelog",
-      "code": "worker/src/channelRoutes.js; web-react/src/screens/HarnessAgents.tsx",
-      "acceptance": "Agents画面のAll／Agents一覧を名前または専門分野で絞り込める。People一覧の挙動は維持し、専門分野は既存ACLで可視なAgentだけから取得する。日本語を含む正規化検索と権限漏えい回帰を検証し、Kylon実画面と比較する。",
+      "code": "worker/src/channelRoutes.js; web-react/src/screens/HarnessAgents.tsx; web-react/src/utils/agentDirectorySearch.ts",
+      "acceptance": "Members画面のAllではメンバーとAgentを、Peopleではメンバーを、AgentsではAgentを、同じ検索欄から名前・handle・alias・専門分野で絞り込める。日本語・全角英数を正規化し、Agentは既存APIが返すACL可視一覧だけを検索する。Simple modeの既存導線を維持し、認証済みKylonの同一操作と比較する。",
       "evidence": {
         "reviewedAt": "2026-11-17",
-        "verified": "Candidate UI adds normalized name/specialty filtering to the Agents list while preserving People tabs. Focused Web test 13/13 and Worker Agent ACL test 48/48 passed; combined Worker suite 267/267 and Web Agent/CompanyApp suite 32/32 passed. TypeScript and production Web build passed.",
-        "remaining": "Exact-head CI, production deployment, authenticated Kylon screen comparison and production multi-user ACL acceptance remain."
+        "verified": "既存のAgent名・専門分野検索を拡張し、All/People/Agentsの各タブで該当するメンバー名・handle・aliasとAgent名・handle・専門分野を同じ入力欄で絞り込む。検索語はNFKC正規化し全角英数と日本語を扱う。PeopleタブではPeopleのみ表示し、AgentsタブではAgentのみ表示する。Worker APIは現行ACLで可視なAgentだけを返す既存経路を使用する。",
+        "remaining": "ローカルUI/API回帰、exact-head CI、merge、本番反映後に、認証済みKylonと同じMembers操作を比較する。"
       }
     },
     {
