@@ -273,6 +273,10 @@ CREATE TABLE IF NOT EXISTS org_session_policy (
 
 ## 5. 作業の順番と見積もり
 
+### GitHub 連携の権限判定
+
+repo workspace の GitHub 連携設定も、`org_id` の文字列形式ではなく中央の `allowed(..., "workspace.integrations")` 判定に従う。GitHub Admin は接続の置換・解除ができるが、Maintainer と Engineer は他のメンバーが登録した workspace 接続を変更できない。個人トークンを本人が使う通常の接続操作は既存の本人所有ルールに従う。
+
 | 段階 | 内容 | 目安 |
 |---|---|---|
 | 1 | `permissions.js` と権限表、既存の判定の置き換え、テスト | 3 日 |
