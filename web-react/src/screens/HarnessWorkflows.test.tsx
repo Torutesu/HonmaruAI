@@ -19,6 +19,7 @@ beforeEach(() => {
     workflow: vi.fn().mockResolvedValue({ workflow, runs: [], summary:emptySummary, canEdit: true }),
     workflowSource: vi.fn().mockResolvedValue({source:{threadId:'thread_source',channel:'b:ops',body:'Create an automation',createdAt:'2026-10-20T00:00:00.000Z'},canBind:false,candidates:[],nextCursor:null}),
     recoverWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
+    reconcileWorkflowExternalWrite: vi.fn().mockResolvedValue({run:{}}),
     cancelWorkflowRun: vi.fn().mockResolvedValue({run:{}}),
     archiveWorkflow: vi.fn().mockResolvedValue({workflow}),
     changeWorkflowHook: vi.fn().mockResolvedValue({ workflow: { ...workflow, hookSecret: undefined, hookUrl: undefined } }),
@@ -69,6 +70,18 @@ test('stalled run recovery requires an explicit no-replay confirmation', async (
  expect(JSON.stringify(tree.toJSON())).toContain('will never replay it')
  await act(async()=>button('Mark interrupted without replay').props.onClick())
  expect(state.api.recoverWorkflowRun).toHaveBeenCalledWith(workflow.id,'stalled',startedAt)
+})
+test('unknown external App writes can be annotated after a provider check without retrying',async()=>{
+ const startedAt='2026-11-20T12:00:00.000Z',operationId='uncertain-issue-1'
+ state.api.workflow.mockResolvedValue({workflow,canEdit:true,runs:[{id:'external-unknown',status:'failed',trigger:'manual',startedAt,finishedAt:'2026-11-20T12:00:02.000Z',log:[{step:1,type:'code',status:'failed',at:'2026-11-20T12:00:02.000Z',error:'External request result is unknown.',externalWrites:[{appId:'app-1',name:'create_issue',method:'POST',operationId,status:'unknown'}]}]}]})
+ await open()
+ expect(JSON.stringify(tree.toJSON())).toContain('Honmaru will not resend this request')
+ await act(async()=>button('Provider confirms not sent…').props.onClick())
+ expect(state.api.reconcileWorkflowExternalWrite).not.toHaveBeenCalled()
+ expect(JSON.stringify(tree.toJSON())).toContain('This only annotates history; it will not resend the request.')
+ await act(async()=>button('Record provider check without resending').props.onClick())
+ expect(state.api.reconcileWorkflowExternalWrite).toHaveBeenCalledWith(workflow.id,'external-unknown',startedAt,operationId,'not_sent')
+ expect(state.api.workflow).toHaveBeenCalledTimes(2)
 })
 test('cancelling a running workflow requires confirmation and refreshes run history', async () => {
  const startedAt='2026-11-01T00:00:00.000Z'

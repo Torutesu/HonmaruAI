@@ -344,6 +344,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
   const [heldPageOffset, setHeldPageOffset] = useState(0)
   const [recoveringRun, setRecoveringRun] = useState<string | null>(null)
   const [cancellingRun, setCancellingRun] = useState<string | null>(null)
+  const [externalWriteCheck,setExternalWriteCheck]=useState<{runId:string;operationId:string;outcome:'sent'|'not_sent'}|null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmRestore, setConfirmRestore] = useState(false)
@@ -767,7 +768,7 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                 {r.log.map((l) => {
                   const output=l.status==='skipped'&&l.output==='Condition did not match.'?t('Condition did not match.'):l.output
                   const stepUsage=r.usage?.steps.find(item=>item.stepNumber===l.step)
-                  const hasDetails=Boolean(l.output || l.error || l.durationMs!==undefined || l.operationId || l.inputPreview || l.authorization?.length || stepUsage)
+                  const hasDetails=Boolean(l.output || l.error || l.durationMs!==undefined || l.operationId || l.inputPreview || l.authorization?.length || l.externalWrites?.length || stepUsage)
                   return (
                   hasDetails ? <details key={l.step} className="hx-run-detail">
                     <summary className="row-sub">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span>
@@ -780,6 +781,40 @@ const ScopedHarnessWorkflows: React.FC<WorkflowProps> = (props) => {
                     {stepUsage && <div><strong>{t('Step AI usage')}</strong><span>{t('Input tokens')}: {stepUsage.inputTokens.toLocaleString(getLocale())} · {t('Output tokens')}: {stepUsage.outputTokens.toLocaleString(getLocale())} · {t('Estimated model cost')}: ${(stepUsage.estimatedMicros/1_000_000).toFixed(6)}{stepUsage.unpricedCalls>0?` · ${t('{count} unpriced calls',{count:stepUsage.unpricedCalls.toLocaleString(getLocale())})}`:''}</span></div>}
                     {l.durationMs!==undefined&&Number.isFinite(l.durationMs)&&<div><strong>{t('Step duration')}</strong><span>{l.durationMs>=1000?`${(l.durationMs/1000).toLocaleString(getLocale(),{maximumFractionDigits:2})} s`:`${l.durationMs} ms`}</span></div>}
                     {l.operationId&&<div><strong>{t('Operation ID')}</strong><code>{l.operationId}</code></div>}
+                    {l.externalWrites?.length ? <section className="hx-workflow-external-writes" aria-label={t('External App requests')}>
+                      <strong>{t('External App requests')}</strong>
+                      <ul>{l.externalWrites.map(write=>{
+                        const reconciliation=l.externalWriteReconciliations?.find(item=>item.operationId===write.operationId)
+                        const selected=externalWriteCheck?.runId===r.id&&externalWriteCheck.operationId===write.operationId?externalWriteCheck:null
+                        return <li key={write.operationId}>
+                          <div>{write.name} · {write.method} · <code>{write.operationId}</code> — {t(write.status==='sent'?'Sent':write.status==='not_sent'?'Not sent':'Unknown')}</div>
+                          {reconciliation ? <p className="row-sub">{t('Provider check recorded: {outcome} · {when}. The request was not resent.',{outcome:t(reconciliation.outcome==='sent'?'Confirmed sent':'Confirmed not sent'),when:new Date(reconciliation.checkedAt).toLocaleString(getLocale())})}</p> : null}
+                          {write.status==='unknown'&&!reconciliation ? <>
+                            <p className="form-note">{t('This result is unknown. Check the provider directly before recording an outcome. Honmaru will not resend this request.')}</p>
+                            {open.canEdit&&!selected&&<div className="hx-actions">
+                              <button type="button" className="btn-text" disabled={!!busy} onClick={()=>setExternalWriteCheck({runId:r.id,operationId:write.operationId,outcome:'sent'})}>{t('Provider confirms sent…')}</button>
+                              <button type="button" className="btn-text" disabled={!!busy} onClick={()=>setExternalWriteCheck({runId:r.id,operationId:write.operationId,outcome:'not_sent'})}>{t('Provider confirms not sent…')}</button>
+                            </div>}
+                            {selected&&<div className="form-note">
+                              <p>{t('Record that the provider confirms {outcome}. This only annotates history; it will not resend the request.',{outcome:t(selected.outcome)})}</p>
+                              <div className="hx-actions">
+                                <button type="button" className="pill-btn danger" disabled={!!busy} onClick={()=>act('reconcile-external-write',async()=>{
+                                  try { await api.reconcileWorkflowExternalWrite(w.id,r.id,r.startedAt,write.operationId,selected.outcome) }
+                                  catch(error) {
+                                    if(!(error instanceof HarnessApiError)||error.status!==409)throw error
+                                    await refreshOpen(w.id)
+                                    throw new Error(t('This request changed before the provider check could be recorded. Its current status is shown below.'))
+                                  }
+                                  setExternalWriteCheck(null)
+                                  await refreshOpen(w.id)
+                                })}>{t('Record provider check without resending')}</button>
+                                <button type="button" className="btn-text" disabled={!!busy} onClick={()=>setExternalWriteCheck(null)}>{t('Cancel')}</button>
+                              </div>
+                            </div>}
+                          </> : null}
+                        </li>
+                      })}</ul>
+                    </section> : null}
                     <time dateTime={l.at}>{new Date(l.at).toLocaleString(getLocale())}</time>
                   </details> : <span key={l.step} className="row-sub hx-log">{l.step}. {stepLabel(t, l.type)} — <span className={`hx-status ${l.status}`}>{t(l.status)}</span></span>
                 )})}
