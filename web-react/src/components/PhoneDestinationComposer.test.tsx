@@ -13,9 +13,9 @@ const destinations = [
   { key: 'dm:aya', view: 'dm:aya', name: 'Aya', kind: 'person' },
 ]
 const api = { httpBase: 'https://honmaru.test', orgId: 'org-1', sessionToken: 'session-1' }
-const render = (onChoose = vi.fn(), onClose = vi.fn(), places = destinations) => {
+const render = (onChoose = vi.fn(), onClose = vi.fn(), places = destinations, intent: 'message' | 'thread' = 'message') => {
   let tree!: ReturnType<typeof create>
-  act(() => { tree = create(<PhoneDestinationComposer destinations={places} api={api} onClose={onClose} onChoose={onChoose} t={(s) => s} />) })
+  act(() => { tree = create(<PhoneDestinationComposer intent={intent} destinations={places} api={api} onClose={onClose} onChoose={onChoose} t={(s) => s} />) })
   return tree
 }
 const typeDraft = (tree: ReturnType<typeof create>, value: string) => act(() => tree.root.findByType('textarea').props.onChange({ target: { value } }))
@@ -41,6 +41,30 @@ test('suggests only supplied readable destinations and selection returns a draft
   act(() => tree.root.findAllByType('button')[1].props.onClick())
   expect(choose).toHaveBeenCalledWith(destinations[0], 'Can you review this?')
   expect(close).not.toHaveBeenCalled()
+  act(() => tree.unmount())
+})
+
+test('new-thread suggestions are rooms only and keep the task as an unsent draft', () => {
+  const choose = vi.fn()
+  const tree = render(choose, vi.fn(), destinations, 'thread')
+  expect(tree.root.findByProps({ 'aria-label': 'Start a new thread' })).toBeDefined()
+  expect(tree.root.findByProps({ 'aria-label': 'Available rooms' }).findAllByType('button').map(button => button.children.join(''))).toEqual(['Planning'])
+  typeDraft(tree, 'Review the launch plan')
+  act(() => tree.root.findAllByType('button').find(button => button.children.join('') === 'Planning')!.props.onClick())
+  expect(choose).toHaveBeenCalledWith(destinations[0], 'Review the launch plan')
+  act(() => tree.unmount())
+})
+
+test('new-thread search ranks Rooms but never redirects the new task into an existing thread', async () => {
+  vi.mocked(fetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ messages: [{ id: 'reply-1', channel: 'b:planning', parentId: 'root-1', replyCount: 2, body: 'release planning review' }] }),
+  } as Response)
+  const tree = render(vi.fn(), vi.fn(), destinations, 'thread')
+  typeDraft(tree, 'release planning review')
+  await act(async () => { await vi.advanceTimersByTimeAsync(260) })
+  const options = tree.root.findByProps({ 'aria-label': 'Available rooms' }).findAllByType('button').map(button => button.children.join(''))
+  expect(options).toEqual(['Planning'])
   act(() => tree.unmount())
 })
 

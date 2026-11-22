@@ -1,6 +1,6 @@
 {
   "asOf": "2026-11-22",
-  "baseline": "5208161294e7227dea3bba6d4bf6fea924ce0d3a",
+  "baseline": "5af374100f410cf547531bddbb05e70283970638",
   "statusMeaning": {
     "implemented": "対象範囲の実装あり。Kylon同等を意味しない",
     "partial": "基礎のみ。受入条件に未達項目あり",
@@ -1898,7 +1898,23 @@
       "evidence": {
         "reviewedAt": "2026-11-22",
         "verified": "Kylon公式changelog (2026-11-14) は、Agentを利用できる人と管理者のAgentプロフィールに最終アクティブ時刻を表示すると記載。HonmaruはHarness Agent一覧を作る際に、同Workspaceかつ現在閲覧可能なAgentの返信時刻だけを集計し、プロフィールにローカライズして表示する。本文や別Workspaceの時刻は返さない。修正前にWorker回帰はlastActiveAt未定義で失敗し、修正後成功。別Workspaceへ同じauthorの未来時刻を置く隔離検証もWorker回帰に含む。Webプロフィールテストは表示日時と活動なし表示を検証。Web全体285 files・2,180 tests、TypeScript check、production build、parity inventory validator成功。",
-        "remaining": "全Worker suite完了、exact-head CI、production deployment、認証済みKylonとの同一Agent比較を確認する。"
+        "release": "PR #1182 was merged as main commit 5af374100f410cf547531bddbb05e70283970638 after all exact-head required checks succeeded. Main CI run 45019621470 passed all Worker shards and E2E; Worker migration/deploy/Verify run 45019621454 succeeded; Web Pages/deployment/domain Verify run 45019621419 succeeded. No schema migration or paid service was added; Simple mode was unchanged.",
+        "remaining": "認証済みKylonとの同一Agentプロフィール比較を確認する。"
+      }
+    },
+    {
+      "id": "KY-135",
+      "category": "Threads",
+      "requirement": "どこからでも自然文で新しいスレッドを開始し、Roomを候補表示",
+      "status": "partial",
+      "priority": "P1",
+      "source": "https://kylon.io/changelog/2026-10-16",
+      "code": "web-react/src/components/ClassicList.tsx; web-react/src/components/PhoneDestinationComposer.tsx; web-react/src/utils/keys.ts",
+      "acceptance": "HarnessではChatヘッダー、Newメニュー、Command/Control+Shift+Oから新しいスレッドを作成できる。作業内容に基づく候補は現在の利用者に返されたRoomだけとし、既存Workspace検索のACLと現在のRoom候補を再確認する。Room選択時は入力をそのRoomの下書きとして保存し、送信前に内容を確認・編集できる。Agentを自動起動せず、新しいAI provider・課金を追加せず、Simple modeの導線を変えない。認証済みKylonと同一タスクの候補・下書き操作を比較する。",
+      "evidence": {
+        "reviewedAt": "2026-11-22",
+        "verified": "Kylon公式2026-10-16 changelogは、New threadまたはShift+Command+Oから作業を入力し、適切なRoomを提案する動作を記載。Honmaruは既存のHarness用PhoneDestinationComposerのpermission-scoped searchとローカル下書き保存を再利用し、デスクトップ入口・キーボードショートカット・Room限定候補を追加。選択したtaskは送信されずRoomの編集可能な下書きになる。同一Roomを選んだ場合の画面状態も更新し、空欄選択で既存下書きを消さない。Focused destination/shortcut tests 25/25、Web 285 files / 2,184 tests、TypeScript check、production build、parity inventory validation succeeded. Focused Playwright real-browser flow verified Room suggestion, selection, editable draft restoration and no send. No new provider, paid service or database schema was added.",
+        "remaining": "Exact-head CI, Web production deployment, full harness-tour's legacy selector failures and authenticated Kylon same-task comparison remain."
       }
     }
   ]

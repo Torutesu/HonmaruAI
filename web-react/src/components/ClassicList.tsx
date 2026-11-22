@@ -107,7 +107,7 @@ import type { Place as Conversation } from '../utils/places'
 import { useAppearance } from '../utils/appearance'
 import { visibleOrder, step, foldedHome } from '../utils/sidebarOrder'
 import type { SidebarGroup } from '../utils/sidebarOrder'
-import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut } from '../utils/keys'
+import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut, newThreadShortcut } from '../utils/keys'
 import { formatDate } from '../utils/dateFormat'
 import './ClassicList.css'
 
@@ -952,7 +952,7 @@ export const ClassicList: React.FC<Props> = ({
   const [phoneTab, setPhoneTab] = useState<'home' | 'dms'>('home')
   // The round button's choices, and the people picker behind "New message".
   const [starting, setStarting] = useState<null | 'menu' | 'people'>(null)
-  const [phoneDraftComposer, setPhoneDraftComposer] = useState(false)
+  const [phoneDraftComposer, setPhoneDraftComposer] = useState<false | 'message' | 'thread'>(false)
   useEffect(() => { if (harness && newRequest) setStarting('menu') }, [harness, newRequest])
   useEffect(() => { if (harness && homeRequest) { choose(null); setHarnessFilter('home') } }, [harness, homeRequest])
   // Everything behind ⋯ in a conversation's header, on a phone.
@@ -1473,7 +1473,11 @@ export const ClassicList: React.FC<Props> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return
       const mod = hasPrimaryMod(e, isMac)
-      if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (harness && newThreadShortcut(e, isMac)) {
+        e.preventDefault()
+        setStarting(null)
+        setPhoneDraftComposer('thread')
+      } else if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         // With no conversation at all the keys are not the list's to take.
         const all = visibleOrder(sidebarGroups, {})
         if (!all.length) return
@@ -6111,7 +6115,7 @@ export const ClassicList: React.FC<Props> = ({
         </div>}
         {!wide && phoneTab === 'dms' ? dmsView() : <>
         {harness ? <>
-          <header className="hx-chat-top"><h1>{t('Chat')}</h1><button onClick={() => setStarting('menu')} aria-label={t('New message')}><Icon name="plus" size={17} /></button></header>
+          <header className="hx-chat-top"><h1>{t('Chat')}</h1><div className="hx-chat-top-actions"><button type="button" onClick={() => setPhoneDraftComposer('thread')} aria-label={t('Start a new thread')} title={`${t('Start a new thread')} · ${formatCombo('Mod+Shift+O',isMac)}`} aria-keyshortcuts="Meta+Shift+O Control+Shift+O"><Icon name="thread-new" size={17} /></button><button onClick={() => setStarting('menu')} aria-label={t('New message')}><Icon name="plus" size={17} /></button></div></header>
           <div className="hx-chat-filters" role="tablist" aria-label={t('Chat')}>
             {(['home', 'recent', 'unread', 'mentions'] as const).map(filter => <button key={filter} role="tab" aria-selected={harnessFilter === filter} onClick={() => {
               setHarnessFilter(filter)
@@ -6203,7 +6207,7 @@ export const ClassicList: React.FC<Props> = ({
           <button type="button" className={tabOn('home') ? 'on' : ''} aria-current={tabOn('home') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('home') }} data-phone-tab="home">
             <Icon name="home" size={22} /><span>{t('Home')}</span>
           </button>
-          <button type="button" className={tabOn('dms') ? 'on' : ''} aria-current={tabOn('dms') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('dms') }} {...(harness ? longPress(() => setPhoneDraftComposer(true), { allowButton: true }) : {})} data-phone-tab="dms">
+          <button type="button" className={tabOn('dms') ? 'on' : ''} aria-current={tabOn('dms') ? 'page' : undefined} onClick={() => { choose(null); setPhoneTab('dms') }} {...(harness ? longPress(() => setPhoneDraftComposer('message'), { allowButton: true }) : {})} data-phone-tab="dms">
             <Icon name="message" size={22} /><span>{t('DMs')}</span>{dmUnread > 0 && <i className="cl-tab-badge">{dmUnread}</i>}
           </button>
           <button type="button" className={tabOn('activity') ? 'on' : ''} aria-current={tabOn('activity') ? 'page' : undefined} onClick={openActivity} data-phone-tab="activity">
@@ -6268,6 +6272,7 @@ export const ClassicList: React.FC<Props> = ({
       }}/>}
       {harness && phoneDraftComposer && (
         <PhoneDestinationComposer
+          intent={phoneDraftComposer}
           destinations={phoneDraftDestinations}
           api={api}
           onClose={() => setPhoneDraftComposer(false)}
@@ -6278,8 +6283,10 @@ export const ClassicList: React.FC<Props> = ({
                 ? `draft:${api.orgId}:thread:${destination.threadId}`
                 : `draft:${api.orgId}:${destination.view}`
               if (draftText.trim()) localStorage.setItem(key, draftText)
-              else localStorage.removeItem(key)
             } catch { /* drafts remain local when storage is available */ }
+            // Choosing the room already open does not change draftId, so the
+            // draft restoration effect will not run in that case.
+            if (draftText.trim()) setDraft(draftText)
             setPhoneDraftComposer(false)
             choose(destination.key)
             if (destination.threadId) {
@@ -6292,6 +6299,7 @@ export const ClassicList: React.FC<Props> = ({
       {starting === 'menu' && (
         <Sheet label={t('New')} onClose={() => setStarting(null)}>
           <div className="msheet-rows">
+            {harness && <SheetRow icon="thread-new" label={t('Start a new thread')} hint={formatCombo('Mod+Shift+O',isMac)} onClick={() => { setStarting(null); setPhoneDraftComposer('thread') }} data="new-thread" />}
             <SheetRow icon="message" label={t('New message')} onClick={() => setStarting('people')} data="new-message" />
             <SheetRow icon="sparkle" label={t('Tell your AI')} hint={t('It becomes a card')} onClick={() => { setStarting(null); onCompose() }} data="tell-ai" />
             <SheetRow icon={harness?'room':'hash'} label={t(harness?'New room':'New channel')} onClick={() => { setStarting(null); setPhoneTab('home'); if(harness&&onCreateRoom)setCreatingRoom(true);else setAdding(true) }} data="new-channel" />

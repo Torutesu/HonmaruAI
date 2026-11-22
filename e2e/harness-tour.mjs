@@ -15,6 +15,7 @@ const WEB = 'http://127.0.0.1:4173'
 const SINK = 'http://127.0.0.1:9099'
 const API = 'http://127.0.0.1:8787'
 const SHOTS = process.env.E2E_SHOTS || '/tmp/e2e-shots/harness'
+const focusedNewThread = process.env.E2E_NEW_THREAD_ONLY === '1'
 mkdirSync(SHOTS, { recursive: true })
 
 let failures = 0
@@ -50,26 +51,27 @@ const api = async (method, path, body) => {
   return data
 }
 
-let invoices, crm
+let invoices, crm, opsRoom
 await step('the workspace becomes a harness, with apps and a workflow in it', async () => {
   await api('PUT', '/orgs/mode', { mode: 'harness' })
-  const room = (await api('POST', '/channels/rooms', { requestId: 'harness-tour-room', name: 'ops', private: true, color: 'teal', guidelines: '', memberRefs: [], agentIds: [] })).room
-  invoices = (await api('POST', '/apps', { template: 'invoices', channel: room.channel })).app
+  opsRoom = (await api('POST', '/channels/rooms', { requestId: 'harness-tour-room', name: 'ops', private: false, color: 'teal', guidelines: '', memberRefs: [], agentIds: [] })).room
+  await api('POST', '/channels/messages', { channel: opsRoom.channel, body: 'Nightly release checklist needs review.' })
+  invoices = (await api('POST', '/apps', { template: 'invoices', channel: opsRoom.channel })).app
   crm = (await api('POST', '/apps', { template: 'crm' })).app
   const rows = (await api('GET', `/tables/${invoices.tableId}?orgId=${encodeURIComponent(orgId)}`)).rows
-  await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[0].id}`, { values: { Due: '2026-09-01', Status: 'Overdue' } })
+  await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[0].id}`, { expectedUpdatedAt: rows[0].updatedAt, values: { Due: '2026-09-01', Status: 'Overdue' } })
   await api('POST', '/workflows', {
     name: 'Chase overdue invoices',
     trigger: { type: 'row', tableId: invoices.tableId, on: 'changed', where: { Status: ['Overdue'] } },
     steps: [
-      { type: 'post', channel: room.channel, text: '{{row.Client}} is overdue on {{row.Invoice #}}.' },
+      { type: 'post', channel: opsRoom.channel, text: '{{row.Client}} is overdue on {{row.Invoice #}}.' },
       { type: 'approval', to: login, title: 'Send {{row.Client}} a reminder?', summary: '{{row.Amount}} overdue' },
     ],
   })
   await api('POST', '/skills', { name: 'Dunning', description: 'How we chase a late invoice', body: 'Day 7: a polite nudge. Day 14: a call.' })
   // A second overdue row starts the workflow, which waits on an approval.
-  await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[1].id}`, { values: { Status: 'Sent' } })
-  await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[1].id}`, { values: { Status: 'Overdue' } })
+  const sent = await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[1].id}`, { expectedUpdatedAt: rows[1].updatedAt, values: { Status: 'Sent' } })
+  await api('PATCH', `/tables/${invoices.tableId}/rows/${rows[1].id}`, { expectedUpdatedAt: sent.row.updatedAt, values: { Status: 'Overdue' } })
 })
 
 const browser = await chromium.launch({
@@ -77,7 +79,8 @@ const browser = await chromium.launch({
   args: ['--headless=new'],
 })
 
-for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['phone', { width: 390, height: 844 }]]) {
+const viewports = [['laptop', { width: 1280, height: 860 }], ['phone', { width: 390, height: 844 }]]
+for (const [label, viewport] of (focusedNewThread ? viewports.slice(0, 1) : viewports)) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 })
   await ctx.addInitScript(() => {
     class HonmaruSpeechRecognition {
@@ -107,13 +110,13 @@ for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['pho
     await page.waitForTimeout(400)
   }
 
-  await step(`${label}: the rail offers Apps and Harness in a harness workspace`, async () => {
+  if (!focusedNewThread) await step(`${label}: the rail offers Apps and Harness in a harness workspace`, async () => {
     await page.goto(WEB, { waitUntil: 'load' })
     if (label === 'laptop') await page.waitForSelector('[data-tab="apps"]', { timeout: 20000 })
     else await page.waitForSelector('.tabbar, .cl-tabs', { timeout: 20000 })
     await shot('00-home')
   })
-  await step(`${label}: a harness workspace opens on its home: what waits on me, the apps' numbers, how workflows ran`, async () => {
+  if (!focusedNewThread) await step(`${label}: a harness workspace opens on its home: what waits on me, the apps' numbers, how workflows ran`, async () => {
     await page.goto(WEB, { waitUntil: 'load' })
     await page.waitForSelector('[data-screen="home"] [data-home-app]', { timeout: 20000 })
     await page.waitForSelector('[data-screen="home"] [data-card]')
@@ -124,6 +127,36 @@ for (const [label, viewport] of [['laptop', { width: 1280, height: 860 }], ['pho
     await visit('#/harness', '[data-open="apps"]')
     await shot('01-hub')
   })
+  if (label === 'laptop') {
+    await step('laptop: a new task suggests a Room and stays as an editable draft', async () => {
+      await visit(`#/c/${encodeURIComponent(opsRoom.channel)}`, '.hx-chat-top-actions')
+      await page.getByRole('button', { name: 'Start a new thread' }).click()
+      await page.getByRole('heading', { name: 'Start a new thread' }).waitFor()
+      const task = 'Review the nightly release checklist'
+      await page.locator('#phone-draft-message').fill(task)
+      await page.getByRole('list', { name: 'Available rooms' }).getByRole('button', { name: 'ops', exact: true }).click()
+      await page.waitForTimeout(500)
+      const draftState = await page.evaluate(() => ({
+        entries: Object.fromEntries(Array.from({ length: localStorage.length }, (_, i) => {
+          const key = localStorage.key(i) || ''
+          return [key, localStorage.getItem(key)]
+        })),
+        draft: document.querySelector('.slk-input')?.value || null,
+      }))
+      const savedDraft = Object.entries(draftState.entries).some(([key, value]) => key.startsWith(`draft:${orgId}:`) && value === task)
+      if (!savedDraft) throw new Error(`the selected room did not restore its task draft: ${JSON.stringify(draftState)}`)
+      await page.waitForFunction(expected => document.querySelector('.slk-input')?.value === expected, task)
+      await shot('01c-new-thread-draft')
+    })
+  }
+  if (focusedNewThread) {
+    await step(`${label}: no page errors after starting a task`, async () => {
+      if (thrown.length) throw new Error(thrown.join('\n'))
+      await shot('01c-new-thread-draft')
+    })
+    await ctx.close()
+    break
+  }
   await step(`${label}: voice input fills a non-chat Harness text field`, async () => {
     await visit('#/apps', '[aria-label="Search apps"]')
     const search = page.locator('[aria-label="Search apps"]')

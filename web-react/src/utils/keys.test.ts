@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut } from './keys'
+import { isMacPlatform, formatCombo, hasPrimaryMod, composing, enterKey, attachmentShortcut, newThreadShortcut } from './keys'
 
 // ⌘ on a Mac, Ctrl everywhere else: what the shortcuts sheet, the search
 // button and the workspace menu print.
@@ -90,6 +90,19 @@ it("scopes attachment shortcut to primary modifier and deliberate non-IME input"
  expect(attachmentShortcut(e,false)).toBe(false);
  expect(attachmentShortcut({...e,metaKey:false,ctrlKey:true},false)).toBe(true);
  for(const guard of [{isComposing:true},{nativeEvent:{keyCode:229}},{altKey:true},{shiftKey:true},{repeat:true},{defaultPrevented:true}])expect(attachmentShortcut({...e,...guard},true)).toBe(false);
+})
+
+describe('global new-thread shortcut',()=>{
+ const base={key:'o',metaKey:true,ctrlKey:false,shiftKey:true,altKey:false}
+ it('uses Command on Mac and Control elsewhere',()=>{
+  expect(newThreadShortcut(base,true)).toBe(true)
+  expect(newThreadShortcut({...base,metaKey:false,ctrlKey:true},false)).toBe(true)
+  expect(newThreadShortcut(base,false)).toBe(false)
+ })
+ it('does not take browser chords or IME/repeated input',()=>{
+  for(const guard of [{altKey:true},{shiftKey:false},{repeat:true},{defaultPrevented:true},{isComposing:true},{keyCode:229},{key:'k'},{ctrlKey:true}])
+   expect(newThreadShortcut({...base,...guard},true)).toBe(false)
+ })
 })
 
 // The Enter that picks a kanji is not the Enter that sends, builds or saves.

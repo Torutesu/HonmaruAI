@@ -27,6 +27,13 @@ export function hasPrimaryMod(e: { metaKey: boolean; ctrlKey: boolean }, mac = i
   return mac ? e.metaKey : e.ctrlKey
 }
 
+/// Open the Harness destination picker for a task that can start a new thread.
+/// The same chord is used on both platforms as the app's primary modifier differs.
+export function newThreadShortcut(e: { key?: string; metaKey: boolean; ctrlKey: boolean; altKey?: boolean; shiftKey?: boolean; repeat?: boolean; defaultPrevented?: boolean; isComposing?: boolean; keyCode?: number }, mac = isMacPlatform()): boolean {
+  const primaryOnly = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+  return !e.defaultPrevented && !e.repeat && !composing(e) && !e.altKey && Boolean(e.shiftKey) && primaryOnly && e.key?.toLowerCase() === 'o'
+}
+
 /// What each part of a combo is called on a Mac: glyphs, written together.
 const MAC: Record<string, string> = {
   Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧',
