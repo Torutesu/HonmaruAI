@@ -346,7 +346,7 @@ test("Harness connections are granted per agent and caller, and revocation stops
   expect(Object.keys(simple).filter((name) => name.startsWith("app")).sort()).toEqual(["app1_archive_everything", "app1_create_issue", "app1_search_issues"]);
   expect(mikaConnection.id).toBeTruthy();
   expect(toruConnection.id).toBeTruthy();
-  await env.DB.prepare("INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, server, created_at) VALUES (?1, ?2, '9702', 'linear', ?3)")
+  await env.DB.prepare("INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, membership_since, server, created_at) SELECT ?1, ?2, '9702', created_at, 'linear', ?3 FROM memberships WHERE org_id=?1 AND user_github_id='9702'")
     .bind(ORG, agentId, new Date().toISOString()).run();
   await call(`/apps/connect?${q}&server=linear`, mika, { method: "DELETE" });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
