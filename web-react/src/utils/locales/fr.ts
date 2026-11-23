@@ -1298,6 +1298,7 @@ const table: Record<string, string> = {
   // Plan
   'Choose your plan': 'Choisissez votre offre',
   'Loading…': 'Chargement…',
+  'Load older versions': 'Charger les versions précédentes',
   'Billing period': 'Période de facturation',
   'Not for sale yet': 'Pas encore en vente',
 

@@ -168,7 +168,7 @@ type CustomAppHistoryEntry = {
   approvals?: Array<{ kind: 'inline' | 'github-commit'; status: 'pending' | 'approved' | 'rejected' | 'revoked' | 'published'; requestedBy: string; requestedByName: string; reviewerId: string | null; reviewerName: string | null; requestedAt: string; reviewedAt: string | null }>
 }
 
-export function CustomAppReleaseHistory({ history, busy, restore }: { history: CustomAppHistoryEntry[]; busy: boolean; restore: (version: number) => void }) {
+export function CustomAppReleaseHistory({ history, busy, restore, next, hasMore, loading }: { history: CustomAppHistoryEntry[]; busy: boolean; restore: (version: number) => void; next?: () => void; hasMore?: boolean; loading?: boolean }) {
   const t = useT()
   const approvalStatus: Record<NonNullable<CustomAppHistoryEntry['approvals']>[number]['status'], string> = {
     pending: t('Awaiting approval'), approved: t('Approved · awaiting publication'), rejected: t('Rejected'), revoked: t('Revoked'), published: t('Published'),
@@ -183,7 +183,7 @@ export function CustomAppReleaseHistory({ history, busy, restore }: { history: C
         : <p>{t('Unpublished draft')}</p>}
     {v.approvals?.map((approval, index) => <p key={`${approval.kind}-${approval.requestedAt}-${index}`} role="status">{approval.kind === 'github-commit' ? t('GitHub commit review') : t('Publication review')} · {approvalStatus[approval.status]} · {t('Requested by {name}', { name: approval.requestedByName })} · {approval.reviewedAt ? t('Reviewed by {name} · {time}', { name: approval.reviewerName || approval.reviewerId || '', time: formatHistoryDate(approval.reviewedAt,t) }) : t('Requested {time}', { time: formatHistoryDate(approval.requestedAt,t) })}</p>)}
     {v.release?.isReleaseVersion && !v.release.current ? <><button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore this published version as a draft')}</button><p>{t('After restoring, publish it again under the current approval rules. The history will record it as a new version.')}</p></> : !v.release && !v.releaseEvent ? <button className="pill-btn quiet" disabled={busy} onClick={() => restore(v.version)}>{t('Restore draft')}</button> : null}
-  </article>)}</>
+  </article>)}{hasMore&&<button type="button" className="pill-btn quiet" disabled={busy||loading} onClick={next}>{loading?t('Loading…'):t('Load older versions')}</button>}</>
 }
 
 export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { app: App; table: Table; rows: Row[]; api: HarnessApi; reload: () => unknown; httpBase: string }) {
@@ -198,6 +198,8 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<CustomAppHistoryEntry[]>([])
+  const [historyCursor,setHistoryCursor]=useState<string|null>(null),[historyLoaded,setHistoryLoaded]=useState(false),[historyLoading,setHistoryLoading]=useState(false)
+  const historyOpen=useRef(false)
   const [commitState,setCommitState]=useState<Awaited<ReturnType<typeof api.customCommitState>>|null>(null)
   const [publishGate,setPublishGate]=useState<Awaited<ReturnType<typeof api.customPublishState>>|null>(null)
   const [gitOwner,setGitOwner]=useState(''),[gitRepo,setGitRepo]=useState(''),[gitBranch,setGitBranch]=useState('main'),[gitSha,setGitSha]=useState('')
@@ -207,7 +209,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     activeScope.current=scope
     const draft=app.definition.custom?.draft||''
     htmlRef.current=draft;editGeneration.current++;remote.current={scope,draft,generation:editGeneration.current};promptGeneration.current++;pending.current=null
-    setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setShownScope(scope)
+    setHtml(draft);setPrompt('');setPreview(Boolean(draft));setGenerated(null);setRemoteChanged(false);setBusy(false);setError('');setHistory([]);setHistoryCursor(null);setHistoryLoaded(false);setHistoryLoading(false);historyOpen.current=false;setShownScope(scope)
     return()=>{if(activeScope.current===scope)activeScope.current=null}
   },[scope])
   useEffect(()=>{
@@ -243,6 +245,21 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
     setBusy(true); setError('')
     try { await action() } catch (e) { if(activeScope.current===scope)setError(e instanceof Error ? e.message : String(e)) } finally { if(pending.current===operation){pending.current=null;if(activeScope.current===scope)setBusy(false)} }
   }
+  async function loadHistory(cursor?: string) {
+    if(historyLoading)return
+    setHistoryLoading(true)
+    try {
+      const page=await api.versions(app.id,cursor)
+      if(activeScope.current!==scope)return
+      setHistory(previous=>cursor?[...previous,...page.versions]:page.versions)
+      setHistoryCursor(page.nextCursor||null);setHistoryLoaded(true)
+    } catch(e) { if(activeScope.current===scope)setError(String(e)) }
+    finally { if(activeScope.current===scope)setHistoryLoading(false) }
+  }
+  useEffect(()=>{
+    setHistory([]);setHistoryCursor(null);setHistoryLoaded(false)
+    if(historyOpen.current)void loadHistory()
+  },[app.id,app.version])
   const changed = html !== (app.definition.custom?.draft || '')
   const currentRemote=app.definition.custom?.draft||''
   const remoteConflict=remoteChanged||(remote.current.scope===scope&&remote.current.draft!==currentRemote&&(htmlRef.current!==remote.current.draft||editGeneration.current!==remote.current.generation)&&htmlRef.current!==currentRemote)
@@ -338,7 +355,7 @@ export function CustomAppEditor({ app, table, rows, api, reload, httpBase }: { a
       {app.definition.custom?.published && <button className="pill-btn quiet" disabled={busy} onClick={() => void run(async () => { await api.saveCustom(app.id, 'unpublish', app.version); if(activeScope.current===scope)await reload() })}>{t('Unpublish')}</button>}
     </div>
     {html.length > MAX_PREVIEW_SOURCE && <p role="alert" className="form-error">{t('Shorten the code to 119,800 characters or fewer to preview and publish. The draft is preserved.')}</p>}
-    <details onToggle={e => { if (e.currentTarget.open) void api.versions(app.id).then(r => {if(activeScope.current===scope)setHistory(r.versions)}).catch(e => {if(activeScope.current===scope)setError(String(e))}) }}><summary>{t('Publication and code history')}</summary><CustomAppReleaseHistory history={history} busy={busy} restore={version => void run(async () => { const entry=history.find(item=>item.version===version); await api.saveCustom(app.id, entry?.release ? 'restore_release' : 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
+    <details onToggle={e => { historyOpen.current=e.currentTarget.open;if(e.currentTarget.open&&!historyLoaded)void loadHistory() }}><summary>{t('Publication and code history')}</summary><CustomAppReleaseHistory history={history} busy={busy} loading={historyLoading} hasMore={Boolean(historyCursor)} next={()=>{if(historyCursor)void loadHistory(historyCursor)}} restore={version => void run(async () => { const entry=history.find(item=>item.version===version); await api.saveCustom(app.id, entry?.release ? 'restore_release' : 'restore', app.version, undefined, version); if(activeScope.current===scope)await reload() })} /></details>
     <small>{changed ? t('Unsaved changes') : `${t('Version')} ${app.version}`} · {t('No direct external requests; connections require confirmation · Inherits app viewing permissions · Publishing actions are recorded in the audit log')}</small>
     {preview && <ForkPreview appId={app.id} version={app.version} api={api} httpBase={httpBase} html={html} table={table} rows={rows} canReview={!changed&&!remoteConflict&&html.length<=MAX_PREVIEW_SOURCE} candidate={publishGate?.candidate||null} onCandidate={async(forkId,revision)=>{await api.customPublish(app.id,{action:'preview_candidate',version:app.version,forkId,revision});setPublishGate(await api.customPublishState(app.id))}} onForkChange={async()=>setPublishGate(await api.customPublishState(app.id))} />}
   </section>
