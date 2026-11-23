@@ -236,11 +236,38 @@ jobs:
             fi
           done
 
+  ios_changes:
+    name: Check native iOS impact
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.filter.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Decide whether the simulator suite applies
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --test .github/scripts/ios-impact.test.cjs
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            git diff --name-only "$BASE_SHA...$HEAD_SHA" | node .github/scripts/ios-impact.cjs >> "$GITHUB_OUTPUT"
+          else
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # macOS minutes are expensive, so this runs on pull requests only. Pushing to
-  # a branch gets the Worker suite; asking to merge gets the whole thing.
+  # a branch gets the Worker suite; native/shared-client changes get the
+  # simulator suite on a pull request. workflow_dispatch always runs it.
   ios:
     name: iOS
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: ios_changes
+    if: needs.ios_changes.outputs.required == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
