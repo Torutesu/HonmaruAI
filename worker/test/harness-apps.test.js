@@ -3008,6 +3008,46 @@ test('Google OAuth callback refuses to persist tokens after App edit permission 
  }finally{vi.unstubAllGlobals();useSecretKey({});}
 });
 
+test('Google OAuth state is fenced to the membership that started it and cleared on departure',async()=>{
+ const {app}=await makeDirectAgentApp(null,'mika');
+ const {useSecretKey}=await import('../src/secrets.js');
+ const {upsertMembership}=await import('../src/db.js');
+ const {memberRef,removeMember}=await import('../src/team.js');
+ const keyEnv={...env,APP_WEB_URL:'https://example.com',DATA_KEY:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))};
+ const keyed=(method,path,token,body)=>worker.fetch(new Request(`https://example.com${path}`,{method,headers:headers(token),...(body?{body:JSON.stringify(body)}:{})}),keyEnv);
+ useSecretKey(keyEnv);
+ const fetch=vi.fn(async()=>new Response(JSON.stringify({access_token:'STALE_OAUTH_ACCESS',refresh_token:'STALE_OAUTH_REFRESH',expires_in:3600}),{headers:{'content-type':'application/json'}}));
+ vi.stubGlobal('fetch',fetch);
+ try{
+  const saved=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'save',name:'google_api',version:0,endpoint:'https://www.googleapis.com/drive/v3/files',method:'GET',authMode:'oauth',clientId:'1234567890-abcdefgh.apps.googleusercontent.com',clientSecret:'MEMBERSHIP_CLIENT_SECRET',scope:'https://www.googleapis.com/auth/drive.readonly'});
+  expect(saved.status).toBe(200);
+  const start=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'oauth_start',name:'google_api'});expect(start.status).toBe(200);
+  const {authorizeUrl}=await start.json(),auth=new URL(authorizeUrl);
+  const old=await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).first();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  await upsertMembership(env.DB,ORG,'9101','admin');
+  const fresh=await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).first();
+  expect(fresh.created_at).not.toBe(old.created_at);
+  const before=await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first();
+  const callback=await worker.fetch(new Request(`https://example.com/apps/oauth/callback?state=${encodeURIComponent(auth.searchParams.get('state'))}&code=callback-code`),keyEnv);
+  expect(callback.status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+  expect((await env.DB.prepare("SELECT token FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by='9101' AND name='google_api'").bind(ORG,app.id).first()).token).toBe(before.token);
+
+  const second=await keyed('POST',`/apps/${app.id}/connections`,toru,{orgId:ORG,action:'oauth_start',name:'google_api'});expect(second.status).toBe(200);
+  const {authorizeUrl:secondUrl}=await second.json(),secondAuth=new URL(secondUrl);
+  await env.DB.prepare("UPDATE memberships SET role='owner' WHERE org_id=?1 AND user_github_id='9102'").bind(ORG).run();
+  await env.DB.prepare("UPDATE memberships SET role='admin' WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+  const removed=await removeMember(keyEnv,{orgId:ORG,actorId:'9102',ref:await memberRef(ORG,'9101')});
+  expect(removed).toMatchObject({ok:true,removed:'9101'});
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_oauth_states WHERE org_id=?1 AND owner_id='9101'").bind(ORG).first()).toEqual({n:0});
+  await upsertMembership(env.DB,ORG,'9101','admin');
+  const departedCallback=await worker.fetch(new Request(`https://example.com/apps/oauth/callback?state=${encodeURIComponent(secondAuth.searchParams.get('state'))}&code=callback-code`),keyEnv);
+  expect(departedCallback.status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+ }finally{vi.unstubAllGlobals();useSecretKey({});}
+});
+
 test('failed Google OAuth refresh marks reauthorization required and never starts an external write',async()=>{
  const {app}=await makeDirectAgentApp();
  const {useSecretKey,openField,sealField,aad}=await import('../src/secrets.js');

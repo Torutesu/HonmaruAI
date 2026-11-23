@@ -25,6 +25,9 @@ export async function decodeAppOAuth(orgId,appId,ownerId,name,stored) {
 
 export async function startAppConnectionOAuth(env,orgId,appId,ownerId,name,origin) {
   if(!env.DATA_KEY)return {error:'Workspace encryption is required for OAuth connections.',status:503};
+  const membership=await env.DB.prepare(`SELECT created_at,role FROM memberships WHERE org_id=?1 AND user_github_id=?2`)
+    .bind(orgId,String(ownerId)).first().catch(()=>null);
+  if(!membership||String(membership.role||'guest').trim().toLowerCase()==='guest')return {error:'Workspace membership changed. Reload and reconnect.',status:403};
   const row=await env.DB.prepare(`SELECT * FROM hx_app_connections WHERE org_id=?1 AND app_id=?2 AND created_by=?3 AND name=?4 AND enabled=1`)
     .bind(orgId,appId,String(ownerId),name).first();
   if(!row)return {error:'Configure an OAuth connection first.',status:404};
@@ -39,9 +42,9 @@ export async function startAppConnectionOAuth(env,orgId,appId,ownerId,name,origi
   const sealed=await sealField(verifier,aad.appConnectionOAuthVerifier(orgId,stateHash),orgId);
   await env.DB.prepare('DELETE FROM hx_app_connection_oauth_states WHERE org_id=?1 AND expires_at<=?2').bind(orgId,now.toISOString()).run();
   await env.DB.prepare(`INSERT INTO hx_app_connection_oauth_states
-    (state_hash,org_id,app_id,owner_id,connection_name,connection_version,endpoint,method,credential_ciphertext,client_id,client_secret,scope,redirect_uri,code_verifier,created_at,expires_at)
-    VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`)
-    .bind(stateHash,orgId,appId,String(ownerId),name,row.version,row.endpoint,row.method,row.token,config.clientId,
+    (state_hash,org_id,app_id,owner_id,membership_since,connection_name,connection_version,endpoint,method,credential_ciphertext,client_id,client_secret,scope,redirect_uri,code_verifier,created_at,expires_at)
+    VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`)
+    .bind(stateHash,orgId,appId,String(ownerId),membership.created_at,name,row.version,row.endpoint,row.method,row.token,config.clientId,
       await sealField(config.clientSecret,`hx_app_connection_oauth_states.client_secret:${orgId}:${stateHash}`,orgId),config.scope||'',redirectUri,sealed,now.toISOString(),expires).run();
   const params=new URLSearchParams({client_id:config.clientId,redirect_uri:redirectUri,response_type:'code',access_type:'offline',prompt:'consent',state,
     code_challenge:challenge,code_challenge_method:'S256',scope:config.scope||'openid email profile'});
@@ -68,10 +71,10 @@ export async function finishAppConnectionOAuth(env,url) {
   if(!s||s.expires_at<=new Date().toISOString()||`${url.origin}${url.pathname}`!==s.redirect_uri||url.searchParams.has('error'))return fail();
   const ownerMayUse=async()=>Boolean(await env.DB.prepare(`SELECT m.created_at AS since FROM memberships m JOIN hx_apps a ON a.org_id=m.org_id
     LEFT JOIN hx_app_access p ON p.org_id=a.org_id AND p.app_id=a.id
-    WHERE m.org_id=?1 AND m.user_github_id=?2 AND a.id=?3 AND m.created_at=(SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id=?2)
+    WHERE m.org_id=?1 AND m.user_github_id=?2 AND a.id=?3 AND m.created_at=?4
       AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?2)
       AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
-      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`).bind(s.org_id,s.owner_id,s.app_id).first().catch(()=>null))
+      AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)`).bind(s.org_id,s.owner_id,s.app_id,s.membership_since).first().catch(()=>null))
     && await mayUseApp(env.DB,s.org_id,s.app_id,s.owner_id);
   const ownerMayManage=async()=>{
     if(!await ownerMayUse())return false;
@@ -108,12 +111,13 @@ export async function finishAppConnectionOAuth(env,url) {
       LEFT JOIN hx_app_person_access person ON person.org_id=a.org_id AND person.app_id=a.id AND person.user_github_id=m.user_github_id
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND a.id=?2 AND a.deleted_at IS NULL
         AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        AND m.created_at=?10
         AND (COALESCE(p.visibility,'workspace')='workspace' OR a.created_by=?3)
         AND NOT EXISTS(SELECT 1 FROM workspace_deletions d WHERE d.org_id=?1 AND d.purge_started_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM workspace_tombstones t WHERE t.org_id=?1)
         AND (a.created_by=?3 OR person.permission='edit'
           OR (person.user_github_id IS NULL AND LOWER(TRIM(COALESCE(m.role,''))) IN ('owner','admin'))))`)
-    .bind(s.org_id,s.app_id,s.owner_id,s.connection_name,s.connection_version,s.endpoint,s.method,s.credential_ciphertext,sealed).run().catch(()=>null);
+    .bind(s.org_id,s.app_id,s.owner_id,s.connection_name,s.connection_version,s.endpoint,s.method,s.credential_ciphertext,sealed,s.membership_since).run().catch(()=>null);
   if(!saved?.meta?.changes)return fail();
   return new Response('<!doctype html><title>Honmaru</title><p>Google連携が完了しました。このタブを閉じてアプリに戻ってください。</p>',{headers});
 }
