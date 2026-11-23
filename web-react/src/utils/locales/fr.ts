@@ -2832,4 +2832,11 @@ Object.assign(table, {
   'Open record: {app} · {table}': 'Ouvrir l’enregistrement : {app} · {table}', 'Could not load more records.': 'Impossible de charger plus d’enregistrements.',
   'Retry loading records': 'Réessayer le chargement des enregistrements', 'Load more records': 'Charger plus d’enregistrements'
 })
+Object.assign(table, {
+  'External write receipts': 'Résultats des écritures externes',
+  'External write sent once': 'Écriture envoyée une fois',
+  'External write outcome unknown': 'Résultat de l’écriture inconnu',
+  'External write not sent': 'Écriture non envoyée',
+  'Request bodies and credentials are not retained in these receipts.': 'Ces reçus ne conservent ni le contenu des requêtes ni les identifiants.',
+})
 export default table

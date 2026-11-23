@@ -596,6 +596,16 @@ test('the Worker rejects duplicate operation IDs and batches that mix App connec
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
 });
 
+test('an empty staged App-write batch settles as a no-op',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'No writes requested',stderr:'',exitCode:0,messages:[],connectionWrites:[]});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first();
+ expect(run.status).toBe('done');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id='program-org'").first()).n).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
+});
+
 test('declining an external App write ends the run without dispatching or applying it',async()=>{
  const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
  const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-decline',body:{title:'Do not send'}};

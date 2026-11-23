@@ -4600,4 +4600,11 @@ Object.assign(table, {
   'Open record: {app} · {table}': 'レコードを開く: {app} · {table}', 'Could not load more records.': '追加のレコードを取得できませんでした。',
   'Retry loading records': 'レコードの読み込みを再試行', 'Load more records': 'さらにレコードを表示'
 })
+Object.assign(table, {
+  'External write receipts': '外部書き込みの結果',
+  'External write sent once': '一度送信済み',
+  'External write outcome unknown': '書き込み結果不明',
+  'External write not sent': '書き込み未送信',
+  'Request bodies and credentials are not retained in these receipts.': 'この結果記録にはリクエスト本文や認証情報は保存されません。',
+})
 export default table

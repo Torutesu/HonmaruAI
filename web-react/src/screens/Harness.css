@@ -118,6 +118,15 @@
 .hx-run-authorization code { font-family: var(--font-mono); font-size: 11px; }
 .hx-run-effect-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 7px 0; padding: 7px 9px; border: 1px solid var(--hx-border); border-radius: 8px; color: var(--hx-text-muted); font-size: 12px; }
 .hx-run-effect-receipt strong { color: var(--hx-text); }
+.hx-run-external-writes { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--hx-border); border-radius: 8px; font-size: 12px; }
+.hx-run-external-writes > ol { margin: 6px 0; padding-left: 22px; }
+.hx-run-external-writes > ol > li { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 8px; align-items: baseline; }
+.hx-run-external-writes code { color: var(--hx-text-muted); overflow-wrap: anywhere; }
+.hx-run-external-writes p { margin: 6px 0 0; }
+@media (max-width: 600px) {
+ .hx-run-external-writes > ol > li { grid-template-columns: minmax(0,1fr) auto; }
+ .hx-run-external-writes > ol > li > span { grid-column: 1 / -1; overflow-wrap: anywhere; }
+}
 .hx-run-history-panel > summary { cursor: pointer; }
 .hx-run-drafts { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--hx-border); border-radius: 10px; background: var(--hx-surface-muted, var(--hx-surface)); }
 .hx-run-drafts > strong { display: block; margin-bottom: 6px; }
