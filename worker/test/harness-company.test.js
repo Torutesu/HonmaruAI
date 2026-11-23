@@ -570,6 +570,41 @@ test('Agent API grants are Harness-only, owner-scoped GETs and revoke on connect
  expect(await agentAppConnectionTools(env,{orgId,agentId:agent.id,session:{github_id:'1'}})).toEqual({});
 });
 
+test('an Agent API read is discarded when its grant is revoked and regranted in flight',async()=>{
+ const {saveConnection}=await import('../src/harness/appCapabilities.js');
+ const {agentAppConnectionsForMember,setAgentAppConnectionGrant,agentAppConnectionTools,agentAppConnectionAllowed}=await import('../src/harness/agentAppConnectionGrants.js');
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'harness','now')").bind(orgId).run();
+ const made=await call('/channels/agents',owner,{name:'Revoked API Reader',handle:'revoked-api-reader',instructions:'Read APIs'});
+ const agent=(await made.json()).agent;
+ expect(await saveConnection(env.DB,orgId,app.id,'1',{name:'catalog',version:0,endpoint:'https://api.vendor.io/v1/items',method:'GET'})).toMatchObject({saved:true});
+ await setAgentAppConnectionGrant(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',enabled:true});
+ const tools=await agentAppConnectionTools(env,{orgId,agentId:agent.id,session:{github_id:'1'}});
+ const tool=Object.values(tools)[0],oldGrantId=tool._appConnection.grantId;
+ expect(oldGrantId).toBeTruthy();
+ let releaseFetch,markStarted;
+ const fetchGate=new Promise(resolve=>{releaseFetch=resolve;});
+ const fetchStarted=new Promise(resolve=>{markStarted=resolve;});
+ fetchMock.activate();
+ fetchMock.get('https://api.vendor.io').intercept({path:'/v1/items?q=books',method:'GET'}).reply(async()=>{
+   markStarted();
+   await fetchGate;
+   return {statusCode:200,data:{items:[{name:'revoked-result'}]},headers:{'content-type':'application/json'}};
+ });
+ try {
+  const pending=tool.run({query:{q:'books'}});
+  await fetchStarted;
+  expect((await setAgentAppConnectionGrant(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',enabled:false})).error).toBeUndefined();
+  await setAgentAppConnectionGrant(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',enabled:true});
+  const current=(await agentAppConnectionsForMember(env.DB,{orgId,agentId:agent.id,githubId:'1'}))[0];
+  expect(current.grantId).not.toBe(oldGrantId);
+  expect(await agentAppConnectionAllowed(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',grantId:oldGrantId})).toBe(false);
+  releaseFetch();
+  const result=await pending;
+  expect(result).toMatch(/Not read: Connection access changed while the request was running/);
+  expect(result).not.toContain('revoked-result');
+ } finally { releaseFetch?.(); fetchMock.deactivate(); }
+});
+
 test('external writes are constrained to the approved method/path and never replayed after uncertain failures',async()=>{
  const endpoint='https://api.github.com/repos/owner/repo/issues';
  expect((await run('connections',{action:'save',name:'issues',version:0,endpoint,method:'POST'})).status).toBe(200);

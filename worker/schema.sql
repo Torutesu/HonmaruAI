@@ -2400,6 +2400,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_app_connection_grants (
   app_access_version INTEGER NOT NULL DEFAULT 0,
   agent_access_version INTEGER NOT NULL DEFAULT 0,
   agent_access_mutation_id TEXT,
+  grant_id TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   PRIMARY KEY(org_id,app_id,agent_id,user_github_id,connection_name),
   FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE,

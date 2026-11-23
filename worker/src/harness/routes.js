@@ -1290,7 +1290,8 @@ export async function handleHarness(request, env, url, context = {}) {
         const workflowRemoteMcp = url.searchParams.get('workflow') === '1'
           ? await workflowRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me })
           : undefined;
-        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections, apiConnections,
+        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections,
+          apiConnections: apiConnections.map(({ grantId, ...connection }) => connection),
           ...(workflowRemoteMcp ? { workflowRemoteMcpConnections: workflowRemoteMcp } : {}) });
       }
       if (request.method === 'POST' || request.method === 'DELETE') {
@@ -1305,7 +1306,7 @@ export async function handleHarness(request, env, url, context = {}) {
             action: request.method === 'POST' ? 'agent.custom_api_granted' : 'agent.custom_api_revoked',
             actor: person(who.user), entity: { type: 'custom_agent', id: agentId },
             details: { appId: customAppId, connectionName: customConnectionName } });
-          return json({ apiConnections: result.connections });
+          return json({ apiConnections: result.connections.map(({ grantId, ...connection }) => connection) });
         }
         const source = String(input?.source || url.searchParams.get('source') || '');
         if (source) {

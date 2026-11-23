@@ -689,7 +689,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentLogin: user.login,
       onNativeSourceUsed: (source, providerId) => nativeSourcesUsed.set(source, String(providerId || session?.github_id || "")),
       onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
-      onAppConnectionUsed: (appId, connectionName) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName }),
+      onAppConnectionUsed: (appId, connectionName, grantId) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName, grantId }),
       onSlackDraftCreated: (draftId) => slackDraftIds.push(draftId),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
@@ -723,8 +723,8 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
           if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId, toolName })) return false;
         }
-        for (const { appId, connectionName } of appConnectionsUsed.values()) {
-          if (!await agentAppConnectionAllowed(env, { orgId, agentId: agent.id, session, appId, connectionName })) return false;
+        for (const { appId, connectionName, grantId } of appConnectionsUsed.values()) {
+          if (!await agentAppConnectionAllowed(env, { orgId, agentId: agent.id, session, appId, connectionName, grantId })) return false;
         }
       }
       return true;

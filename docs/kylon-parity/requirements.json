@@ -1162,6 +1162,12 @@
           "verification": "Harness company regression passed 51/51 including Simple-mode rejection and connection change revocation. Full Worker suite passed 324 files/3,729 tests. Web tests passed 286 files/2,188 tests; TypeScript and production build passed. Exact-head CI is pending.",
           "remaining": "Other members' connection delegation, write-capable Agent tools, complete Kylon parity and authenticated live-screen acceptance remain incomplete."
         },
+        "agentCustomApiGrantRevocationFence": {
+          "reviewedAt": "2026-11-23",
+          "scope": "Add a unique grant generation so an Agent API GET captures the exact permission it started with. Revoking and regranting the same member, Agent, App, and connection cannot make an older in-flight request pass its post-fetch authorization check. The generation is kept out of the Agent settings response and model-visible tool schema.",
+          "verification": "Regression holds a provider GET in flight, revokes and regrants the same permission, and verifies the response is discarded. Worker harness-company and migration suites passed 81/81; full Worker suite passed 324 files/3,730 tests. Exact-head CI and production rollout pending.",
+          "remaining": "Other members' connection delegation, write-capable Agent tools, complete Kylon parity and authenticated live-screen acceptance remain incomplete."
+        },
         "approvalBinding": {
           "reviewedAt": "2026-11-16",
           "scope": "A write-capable Workflow approval now carries a SHA-256 of the canonical rendered arguments, plus the run, workflow, approval step, connection step, server and tool. The accepted decision is copied to the durable run log and the write is refused unless every binding and the exact argument hash still match at execution time. This closes the gap where Workflow input or a same-run argument source could change between approval and dispatch.",
