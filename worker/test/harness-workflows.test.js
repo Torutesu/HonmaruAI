@@ -1746,6 +1746,80 @@ test('a direct Workflow Remote MCP step calls only its explicitly granted tool a
   } finally { deactivateWorkflowFetchMock(); }
 });
 
+test('Agentless Workflow Remote MCP steps create an exact Workflow grant and discard a result after grant revocation', async () => {
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'], additionalProperties: false }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, startRun } = await import('../src/harness/workflows.js');
+  const made = await createWorkflow(env.DB, ORG, {
+    name: 'Use an approved source without an Agent', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', source: 'remote_mcp', serverId: server.id, toolName: 'search_policy', args: { query: '{{input.query}}' } }],
+  }, '9302');
+  expect(made.error).toBeUndefined();
+  const workflow = made.workflow;
+  const grant = await env.DB.prepare('SELECT generation FROM hx_workflow_remote_mcp_tool_grants WHERE org_id=?1 AND workflow_id=?2 AND server_id=?3 AND tool_name=?4')
+    .bind(ORG, workflow.id, server.id, 'search_policy').first();
+  expect(grant?.generation).toBeTruthy();
+  const { remoteMcpTools } = await import('../src/harness/remoteMcp.js');
+  const { workflowRemoteMcpAuthorizationStamp } = await import('../src/harness/workflowRemoteMcp.js');
+  const offered = (await remoteMcpTools(env.DB, ORG, { workflowWritable: true })).find(item => item._remote?.serverId === server.id && item._remote?.toolName === 'search_policy');
+  expect(await workflowRemoteMcpAuthorizationStamp(env, { orgId: ORG, workflowId: workflow.id, actorId: '9302', offered, requiresApproval: false })).toBeTruthy();
+  activateWorkflowFetchMock();
+  interceptWorkflowRemoteMcp();
+  try {
+    const successful = await startRun({ ...env, DATA_KEY: testDataKey }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { query: 'retention' } });
+    expect(successful.log[0]).toMatchObject({ status: 'ok', output: 'Workspace policy: keep all keys private.' });
+    fetchMock.assertNoPendingInterceptors();
+  } finally { deactivateWorkflowFetchMock(); }
+  let dispatched;
+  activateWorkflowFetchMock();
+  interceptWorkflowRemoteMcp(async request => {
+    dispatched = request.params;
+    await env.DB.prepare('DELETE FROM hx_workflow_remote_mcp_tool_grants WHERE org_id=?1 AND workflow_id=?2 AND server_id=?3 AND tool_name=?4')
+      .bind(ORG, workflow.id, server.id, 'search_policy').run();
+    await env.DB.prepare(`INSERT INTO hx_workflow_remote_mcp_tool_grants(org_id,workflow_id,server_id,tool_name,granted_by,generation,created_at)
+      VALUES(?1,?2,?3,?4,'9302',?5,?6)`).bind(ORG, workflow.id, server.id, 'search_policy', crypto.randomUUID(), new Date().toISOString()).run();
+  });
+  try {
+    const result = await startRun({ ...env, DATA_KEY: testDataKey }, { orgId: ORG, workflow, trigger: 'manual', startedBy: '9302', input: { query: 'retention' } });
+    expect(dispatched).toMatchObject({ name: 'search_policy', arguments: { query: 'retention' } });
+    expect(result.status).toBe('failed');
+    expect(result.log[0].status).toBe('failed');
+    expect(result.log[0].output || '').not.toContain('Workspace policy');
+    fetchMock.assertNoPendingInterceptors();
+  } finally { deactivateWorkflowFetchMock(); }
+});
+
+test('Workflow Remote MCP checkpoint rejects a revoked and regranted workflow tool', async () => {
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  const { createWorkflow, workflowStepFingerprint } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, { name: 'Fence Workflow grant', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', source: 'remote_mcp', serverId: server.id, toolName: 'search_policy', args: { query: 'policy' } }] }, '9302');
+  const runId = 'run-workflow-mcp-grant-generation';
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9302',?4)`).bind(runId, ORG, workflow.id, new Date().toISOString()).run();
+  const identity = { orgId: ORG, runId, nodeId: 'step:1', fingerprint: await workflowStepFingerprint(workflow.steps[0]), effect: true };
+  const lease = await (await import('../src/harness/workflowCheckpoints.js')).claimWorkflowNode(env.DB, { ...identity, at: Date.now() });
+  const { remoteMcpTools } = await import('../src/harness/remoteMcp.js');
+  const { workflowRemoteMcpAuthorizationStamp, workflowRemoteMcpCheckpointFence } = await import('../src/harness/workflowRemoteMcp.js');
+  const offered = (await remoteMcpTools(env.DB, ORG, { workflowWritable: true })).find(item => item._remote?.serverId === server.id && item._remote?.toolName === 'search_policy');
+  const stamp = await workflowRemoteMcpAuthorizationStamp(env, { orgId: ORG, workflowId: workflow.id, actorId: '9302', offered });
+  const workflowRemoteMcpFence = workflowRemoteMcpCheckpointFence(stamp);
+  expect(workflowRemoteMcpFence).toBeTruthy();
+  await env.DB.prepare('DELETE FROM hx_workflow_remote_mcp_tool_grants WHERE org_id=?1 AND workflow_id=?2 AND server_id=?3 AND tool_name=?4')
+    .bind(ORG, workflow.id, server.id, 'search_policy').run();
+  await env.DB.prepare(`INSERT INTO hx_workflow_remote_mcp_tool_grants(org_id,workflow_id,server_id,tool_name,granted_by,generation,created_at)
+    VALUES(?1,?2,?3,?4,'9302',?5,?6)`).bind(ORG, workflow.id, server.id, 'search_policy', crypto.randomUUID(), new Date().toISOString()).run();
+  const saved = await (await import('../src/harness/workflowCheckpoints.js')).finishWorkflowNode(env.DB, {
+    ...identity, ...lease, result: { status: 'ok', output: 'must not persist' }, workflowRemoteMcpFence, at: Date.now(),
+  });
+  expect(saved).toBe(false);
+  expect((await env.DB.prepare('SELECT status,result FROM hx_workflow_node_checkpoints WHERE org_id=?1 AND run_id=?2 AND node_id=?3')
+    .bind(ORG, runId, 'step:1').first())).toMatchObject({ status: 'running', result: null });
+});
+
 test('Remote MCP checkpoint commits reject a grant that was revoked and regranted after the result check', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'Checkpoint reviewer', handle: 'checkpoint-reviewer', instructions: 'Review policy.', scope: 'team',

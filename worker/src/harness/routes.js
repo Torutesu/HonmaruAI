@@ -76,6 +76,7 @@ import { clientAgentAvatarUrl } from '../agentAvatarAccess.js';
 import { announceCards } from '../announce.js';
 import { notifyCard, anyChannelConfigured } from '../notify.js';
 import { handleRemoteMcp } from './remoteMcp.js';
+import { listWorkflowRemoteMcpCatalog } from './workflowRemoteMcp.js';
 import { agentAppConnections, setAgentAppGrant } from '../smitheryApps.js';
 import { agentSourceConnections, setAgentSourceConnection, setAgentSourceShare, setAgentWorkspaceSourceConnection } from './agentConnections.js';
 import { agentRemoteMcpConnections, workflowRemoteMcpConnections, setAgentRemoteMcpConnection, setAgentRemoteMcpTool } from './agentRemoteMcp.js';
@@ -818,6 +819,10 @@ export async function handleHarness(request, env, url, context = {}) {
   // ── Workflows ─────────────────────────────────────────────────────────
   if (parts[0] === "workflows") {
     const [, wfId, sub, runId] = parts;
+    if (wfId === 'remote-mcp-tools' && !sub && request.method === 'GET') {
+      if (await getMode(env.DB, orgId).catch(() => null) !== 'harness') return json({ message: 'Remote MCP Workflow tools require Harness mode.' }, 404);
+      return json({ workflowRemoteMcpConnections: await listWorkflowRemoteMcpCatalog(env.DB, orgId) });
+    }
     if(wfId==='offers'&&sub&&['accept','decline'].includes(runId)&&request.method==='POST'){
       const made=await respondToRecurringAutomationOffer(env,request,orgId,who,{id:sub,action:runId,timezone:input.timezone||'UTC'});
       if(made.response)return made.response;

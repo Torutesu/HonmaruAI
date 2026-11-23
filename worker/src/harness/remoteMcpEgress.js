@@ -58,9 +58,9 @@ function cleanRequest(request) {
   let authorization;
   if (request.authorization !== undefined) {
     const value = request.authorization;
-    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["kind", "agentId", "toolName", "appId", "viewerId", "connectionOwnerId", "grantId"].includes(key))) throw new Error("Invalid Remote MCP egress authorization context.");
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["kind", "agentId", "toolName", "appId", "viewerId", "connectionOwnerId", "grantId", "workflowId", "runId", "grantGeneration", "workflowUpdatedAt", "actorId"].includes(key))) throw new Error("Invalid Remote MCP egress authorization context.");
     const kind = value.kind || (typeof value.agentId === "string" && typeof value.toolName === "string" ? "agent" : "member");
-    if (kind !== "admin" && kind !== "member" && kind !== "agent" && kind !== "agent-request" && kind !== "app") throw new Error("Invalid Remote MCP egress authorization context.");
+    if (kind !== "admin" && kind !== "member" && kind !== "agent" && kind !== "agent-request" && kind !== "app" && kind !== "workflow") throw new Error("Invalid Remote MCP egress authorization context.");
     authorization = {
       kind,
       ...(typeof value.agentId === "string" && value.agentId.length <= 200 ? { agentId: value.agentId } : {}),
@@ -69,9 +69,15 @@ function cleanRequest(request) {
       ...(typeof value.viewerId === "string" && value.viewerId.length <= 200 ? { viewerId: value.viewerId } : {}),
       ...(typeof value.connectionOwnerId === "string" && value.connectionOwnerId.length <= 200 ? { connectionOwnerId: value.connectionOwnerId } : {}),
       ...(typeof value.grantId === "string" && value.grantId.length <= 200 ? { grantId: value.grantId } : {}),
+      ...(typeof value.workflowId === "string" && value.workflowId.length <= 200 ? { workflowId: value.workflowId } : {}),
+      ...(typeof value.runId === "string" && value.runId.length <= 200 ? { runId: value.runId } : {}),
+      ...(typeof value.grantGeneration === "string" && value.grantGeneration.length <= 200 ? { grantGeneration: value.grantGeneration } : {}),
+      ...(typeof value.workflowUpdatedAt === "string" && value.workflowUpdatedAt.length <= 200 ? { workflowUpdatedAt: value.workflowUpdatedAt } : {}),
+      ...(typeof value.actorId === "string" && value.actorId.length <= 200 ? { actorId: value.actorId } : {}),
     };
     if ((authorization.kind === "agent" || authorization.kind === "agent-request") && (!authorization.agentId || !authorization.toolName)) throw new Error("Agent egress requires an exact Agent and tool authorization.");
     if (authorization.kind === "app" && (!authorization.appId || !authorization.viewerId)) throw new Error("App egress requires a current App viewer.");
+    if (authorization.kind === 'workflow' && (!authorization.workflowId || !authorization.runId || !authorization.actorId || !authorization.toolName || !authorization.grantGeneration || !authorization.workflowUpdatedAt || authorization.agentId || authorization.appId || authorization.grantId || authorization.connectionOwnerId)) throw new Error('Workflow egress requires an exact current Workflow tool grant.');
     if (authorization.grantId && (authorization.kind !== "app" || !authorization.appId || !authorization.viewerId || !authorization.toolName)) throw new Error("App egress grants require an exact App, viewer, and tool.");
   }
   const timeoutMs = Number.isInteger(request.timeoutMs) ? Math.max(1_000, Math.min(request.timeoutMs, MAX_TIMEOUT_MS)) : DEFAULT_TIMEOUT_MS;
@@ -135,6 +141,22 @@ async function authorizationStillValid(db, row, authorization = null) {
           row.server_id, authorization.toolName, authorization.grantId).catch(() => false)) return false;
       }
     }
+    if (authorization?.kind === 'workflow') {
+      const valid = await db.prepare(`SELECT 1 FROM hx_workflow_runs r
+        JOIN hx_workflows w ON w.org_id=r.org_id AND w.id=r.workflow_id
+        JOIN hx_workflow_remote_mcp_tool_grants g ON g.org_id=w.org_id AND g.workflow_id=w.id
+        JOIN hx_remote_mcp_servers s ON s.org_id=g.org_id AND s.id=g.server_id
+        JOIN memberships maker ON maker.org_id=w.org_id AND maker.user_github_id=w.created_by
+          AND LOWER(TRIM(COALESCE(maker.role,'guest')))!='guest'
+        JOIN org_settings os ON os.org_id=w.org_id AND os.mode='harness'
+        WHERE r.org_id=?1 AND r.id=?2 AND r.workflow_id=?3 AND r.status='running'
+          AND w.updated_at=?4 AND s.id=?5 AND s.auth_mode='headers'
+          AND EXISTS(SELECT 1 FROM json_each(s.allowed_tools) allowed WHERE allowed.value=?6)
+          AND g.tool_name=?6 AND g.generation=?7 AND ?8=?9`)
+        .bind(row.org_id, authorization.runId, authorization.workflowId, authorization.workflowUpdatedAt,
+          row.server_id, authorization.toolName, authorization.grantGeneration, authorization.actorId, String(row.actor_id)).first().catch(() => null);
+      if (!valid) return false;
+    }
     return true;
   } catch { return false; }
 }
@@ -161,7 +183,7 @@ async function loadGateway(db, gatewayId, orgId, at, { requireOnline = true } = 
 
 /// Create an encrypted, single-use request and wait for the assigned Gateway.
 /// `authorization` is optional, non-secret context used to recheck
-/// Agent/App grants at claim, completion and response-read time.
+/// Agent/App/Workflow grants at claim, completion and response-read time.
 export async function remoteMcpEgressRequest(env, { orgId, serverId, actorId, authorization = null }, request) {
   if (!env?.DATA_KEY) throw new Error("Workspace encryption is required for Remote MCP egress.");
   if (!orgId || !serverId || !actorId) throw new Error("Remote MCP egress needs an active workspace member.");

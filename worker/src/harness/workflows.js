@@ -16,6 +16,7 @@ import { getMode } from './mode.js';
 import { enforce } from '../ratelimit.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
 import { workflowAgentRemoteTools, workflowRemoteToolAllowed, workflowRemoteToolAuthorizationStamp, workflowRemoteToolsStillAuthorized, workflowRemoteToolCheckpointFence } from './workflowAgentRemoteTools.js';
+import { workflowRemoteMcpAllowed, workflowRemoteMcpAuthorizationStamp, workflowRemoteMcpCheckpointFence, workflowRemoteMcpStepDeclarations } from './workflowRemoteMcp.js';
 import { mayUseAgentRemoteMcp } from './agentRemoteMcp.js';
 import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
 import { agentSourceCredential, hasAgentSourceGrant } from './agentConnections.js';
@@ -407,12 +408,12 @@ export function normalizeSteps(raw) {
         if (s.source === 'remote_mcp') {
           const args = normalizeRemoteMcpArguments(s.args === undefined ? {} : s.args);
           const connectionOwnerId = s.connectionOwnerId == null ? null : text('connectionOwnerId', 200);
-          if (!s.agentId || typeof s.serverId !== 'string' || !s.serverId.trim() || s.serverId.length > 200
+          if (s.agentId != null && (typeof s.agentId !== 'string' || !s.agentId.trim()) || typeof s.serverId !== 'string' || !s.serverId.trim() || s.serverId.length > 200
             || typeof s.toolName !== 'string' || !s.toolName.trim() || s.toolName.length > 200
-            || s.connectionOwnerId != null && (!connectionOwnerId || connectionOwnerId !== s.connectionOwnerId) || !args) {
-            return { error: 'A Remote MCP connection step needs an Agent, one enabled tool, and bounded JSON arguments without credentials.' };
+            || s.connectionOwnerId != null && (!connectionOwnerId || connectionOwnerId !== s.connectionOwnerId || !s.agentId) || !args) {
+            return { error: 'A Remote MCP connection step needs one enabled tool and bounded JSON arguments without credentials.' };
           }
-          steps.push({ type: 'connection', agentId: text('agentId', 64), source: 'remote_mcp',
+          steps.push({ type: 'connection', ...(s.agentId ? { agentId: text('agentId', 64) } : {}), source: 'remote_mcp',
             serverId: text('serverId', 200), toolName: text('toolName', 200), ...(connectionOwnerId ? { connectionOwnerId } : {}), args });
           break;
         }
@@ -583,11 +584,15 @@ async function connectionStepsAvailable(db, orgId, steps, ownerId) {
     if (step.source === 'remote_mcp') {
       const tool = offeredTools.find(item => item?._remote?.serverId === step.serverId && item?._remote?.toolName === step.toolName);
       if (tool?._remote?.requiresApproval && steps[index - 1]?.type !== 'approval') return { error: 'A write-capable Remote MCP tool must immediately follow an approval step.' };
-      if (!tool || !validRemoteMcpArguments(tool.inputSchema, step.args)
-        || !await mayUseAgentRemoteMcp({ DB: db }, { orgId, agentId: step.agentId,
-          session: { github_id: String(ownerId) }, serverId: step.serverId, toolName: step.toolName,
-          connectionOwnerId: step.connectionOwnerId || null })) {
-        return { error: 'Choose an Agent with a current exact grant for this Remote MCP tool and valid arguments.' };
+      if (!tool || !validRemoteMcpArguments(tool.inputSchema, step.args)) return { error: 'Choose an enabled Remote MCP tool and valid arguments.' };
+      if (step.agentId && !await mayUseAgentRemoteMcp({ DB: db }, { orgId, agentId: step.agentId,
+        session: { github_id: String(ownerId) }, serverId: step.serverId, toolName: step.toolName,
+        connectionOwnerId: step.connectionOwnerId || null })) {
+        return { error: 'Choose an Agent with a current exact grant for this Remote MCP tool.' };
+      }
+      if (!step.agentId) {
+        const server = await db.prepare('SELECT auth_mode FROM hx_remote_mcp_servers WHERE org_id=?1 AND id=?2').bind(orgId, step.serverId).first();
+        if (!server || server.auth_mode !== 'headers' || step.connectionOwnerId) return { error: 'Agentless Workflow tools currently require a workspace-approved server with header credentials.' };
       }
       continue;
     }
@@ -667,6 +672,31 @@ export async function listWorkflows(db, orgId, { viewerId } = {}) {
   return visible;
 }
 
+function workflowRemoteMcpGrantStatements(db, orgId, workflowId, steps, grantedBy, at, { removeUnused = false, requireUpdatedAt = null } = {}) {
+  const declarations = workflowRemoteMcpStepDeclarations(steps);
+  const statements = [];
+  // INSERT OR IGNORE preserves the generation for unchanged grants.
+  for (const item of declarations) statements.push(requireUpdatedAt
+    ? db.prepare(`INSERT OR IGNORE INTO hx_workflow_remote_mcp_tool_grants
+      (org_id,workflow_id,server_id,tool_name,granted_by,generation,created_at)
+      SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND w.id=?2 AND w.updated_at=?8)`)
+      .bind(orgId, workflowId, item.serverId, item.toolName, String(grantedBy), crypto.randomUUID(), at, requireUpdatedAt)
+    : db.prepare(`INSERT OR IGNORE INTO hx_workflow_remote_mcp_tool_grants
+      (org_id,workflow_id,server_id,tool_name,granted_by,generation,created_at)
+      VALUES(?1,?2,?3,?4,?5,?6,?7)`).bind(orgId, workflowId, item.serverId, item.toolName, String(grantedBy), crypto.randomUUID(), at));
+  if (!removeUnused || !declarations.length) {
+    if (removeUnused && !declarations.length) statements.push(db.prepare(`DELETE FROM hx_workflow_remote_mcp_tool_grants WHERE org_id=?1 AND workflow_id=?2
+      ${requireUpdatedAt ? 'AND EXISTS(SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND w.id=?2 AND w.updated_at=?3)' : ''}`)
+      .bind(...(requireUpdatedAt ? [orgId, workflowId, requireUpdatedAt] : [orgId, workflowId])));
+    return statements;
+  }
+  statements.push(db.prepare(`DELETE FROM hx_workflow_remote_mcp_tool_grants WHERE org_id=?1 AND workflow_id=?2
+    ${requireUpdatedAt ? `AND EXISTS(SELECT 1 FROM hx_workflows w WHERE w.org_id=?1 AND w.id=?2 AND w.updated_at=?${declarations.length * 2 + 3})` : ''}
+    AND NOT (${declarations.map((_, index) => `(server_id=?${index * 2 + 3} AND tool_name=?${index * 2 + 4})`).join(' OR ')})`)
+    .bind(orgId, workflowId, ...declarations.flatMap(item => [item.serverId, item.toolName]), ...(requireUpdatedAt ? [requireUpdatedAt] : [])));
+  return statements;
+}
+
 export async function createWorkflow(db, orgId, input, by, {commitGuard, source, announcementLocale} = {}) {
   const name = String(input?.name || "").trim().slice(0, 80);
   if (!name) return { error: "Give the workflow a name." };
@@ -697,6 +727,7 @@ export async function createWorkflow(db, orgId, input, by, {commitGuard, source,
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`)
     .bind(id, orgId, name, input?.enabled === false ? 0 : 1, JSON.stringify(t.trigger), JSON.stringify(s.steps), hook?.stored ?? null, t.trigger.type === 'webhook' ? 1 : 0, next, String(by), at);
   const statements = [...(commitGuard ? [commitGuard(id)] : []), insert];
+  statements.push(...workflowRemoteMcpGrantStatements(db, orgId, id, s.steps, by, at, { requireUpdatedAt: at }));
   if(source) statements.push(db.prepare(`INSERT INTO hx_workflow_sources(org_id,workflow_id,channel,thread_id,created_by)
     VALUES(?1,?2,?3,(SELECT id FROM channel_messages WHERE org_id=?1 AND id=?4 AND channel=?3 AND parent_id IS NULL AND deleted_at IS NULL AND body=?6 AND EXISTS(SELECT 1 FROM memberships WHERE org_id=?1 AND user_github_id=?5 AND LOWER(TRIM(COALESCE(role,'guest')))!='guest')),?5)`)
     .bind(orgId,id,source.channel,source.threadId,String(by),source.body));
@@ -752,6 +783,7 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
   // the candidate is used exactly when the trigger becomes a webhook.
   const mintsHook = trigger.type === "webhook" && wf.trigger.type !== "webhook";
   const updatedAt = new Date(Math.max(Date.now(), (Date.parse(wf.updatedAt) || 0) + 1)).toISOString();
+  const grantStatements = workflowRemoteMcpGrantStatements(db, orgId, id, steps, changedBy ?? wf.createdBy, updatedAt, { removeUnused: true, requireUpdatedAt: updatedAt });
   const [result,revisionResult] = await db.batch([
     db.prepare(`UPDATE hx_workflows SET name = ?1, enabled = ?2, trigger = ?3, steps = ?4,
       next_run_at = CASE WHEN ?2=1 AND enabled=?2 AND trigger=?3 THEN next_run_at ELSE ?5 END, updated_at = ?6,
@@ -760,6 +792,7 @@ export async function updateWorkflow(db, orgId, id, input, changedBy = null) {
       WHERE id = ?7 AND org_id = ?8 AND updated_at = ?10`)
     .bind(name, enabled ? 1 : 0, JSON.stringify(trigger), JSON.stringify(steps), next, updatedAt, id, orgId, hookCandidate?.stored ?? null, wf.updatedAt),
     db.prepare('SELECT MAX(revision) AS revision FROM hx_workflow_revisions WHERE org_id=?1 AND workflow_id=?2').bind(orgId,id),
+    ...grantStatements,
   ]);
   if (!result.meta?.changes) return { error: 'The workflow changed. Reload it before saving your changes.', status: 409 };
   return { workflow: { ...await getWorkflow(db, orgId, id), ...(mintsHook ? { hookSecret: hookCandidate.secret } : {}) }, revision: Number(revisionResult.results?.[0]?.revision)||null };
@@ -1589,7 +1622,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         }
         if (!entry && step.type === 'code') entry = await enqueueWorkflowProgram(db,{orgId,runId});
         if (!entry && step.type !== 'code') {
-          let remoteMcpResultFence = null;
+          let remoteMcpResultFence = null, workflowRemoteMcpResultFence = null;
           const checkpoint = await executeCheckpointedWorkflowStep(db, {
             orgId, runId, stepNumber: index + 1, step, effect: true,
             authorizeResult: async result => {
@@ -1599,6 +1632,12 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
               if (step.source === 'remote_mcp') {
                 const currentTools = await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []);
                 const currentTool = currentTools.find(tool => tool?._remote?.serverId === step.serverId && tool?._remote?.toolName === step.toolName);
+                if (!step.agentId) {
+                  if (!workflowRemoteMcpResultFence) return false;
+                  const currentStamp = await workflowRemoteMcpAuthorizationStamp(env, { orgId, workflowId: workflow.id, actorId,
+                    offered: currentTool, requiresApproval: Boolean(currentTool?._remote?.requiresApproval) });
+                  return currentStamp === workflowRemoteMcpResultFence.stamp;
+                }
                 const principalTool = workflowRemoteMcpPrincipalTool(currentTool, step, actorId);
                 if (!remoteMcpResultFence || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool,
                   { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) })) return false;
@@ -1614,10 +1653,13 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
               ? { orgId, agentId: step.agentId, ownerId: workflow.createdBy, source: step.source }
               : null,
             remoteMcpFence: () => remoteMcpResultFence?.sqlFence || null,
+            workflowRemoteMcpFence: () => workflowRemoteMcpResultFence?.sqlFence || null,
             execute: async () => {
               const priorApproval = step.type === 'connection' && step.source === 'remote_mcp' && workflow.steps[index - 1]?.type === 'approval' && log[index - 1]?.status === 'ok'
                 ? log[index - 1]?.remoteMcpApproval || null : null;
-              const result = await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource, priorApproval, captureRemoteMcpFence: stamp => { remoteMcpResultFence = { stamp, sqlFence: workflowRemoteToolCheckpointFence(stamp, { workflowOwnerId: workflow.createdBy }) }; } });
+              const result = await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource, priorApproval,
+                captureRemoteMcpFence: stamp => { remoteMcpResultFence = { stamp, sqlFence: workflowRemoteToolCheckpointFence(stamp, { workflowOwnerId: workflow.createdBy }) }; },
+                captureWorkflowRemoteMcpFence: stamp => { workflowRemoteMcpResultFence = { stamp, sqlFence: workflowRemoteMcpCheckpointFence(stamp) }; } });
               return { ...result, ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
             },
           });
@@ -1643,8 +1685,10 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
           const currentTools = await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []);
           const currentTool = currentTools.find(tool => tool?._remote?.serverId === step.serverId && tool?._remote?.toolName === step.toolName);
           const principalTool = workflowRemoteMcpPrincipalTool(currentTool, step, actorId);
-          stillAllowed = await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool,
-            { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) });
+          stillAllowed = step.agentId
+            ? await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool, { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) })
+            : await workflowRemoteMcpAllowed(env, { orgId, workflowId: workflow.id, actorId, offered: currentTool,
+              requiresApproval: Boolean(currentTool?._remote?.requiresApproval) });
         } else {
           stillAllowed = Boolean(await workflowConnectionPrincipal(env, {
             orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
@@ -1696,7 +1740,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
 // Checkpoint ordinary steps so a redelivered continuation can recover a
 // committed result without dispatching the effect again. Read-only connection
 // searches can be reclaimed; every other step is conservatively effectful.
-async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute,authorizeResult=async()=>true,sourceGrantFence=null,remoteMcpFence=()=>null}) {
+async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute,authorizeResult=async()=>true,sourceGrantFence=null,remoteMcpFence=()=>null,workflowRemoteMcpFence=()=>null}) {
  const nodeId=`step:${stepNumber}`,fingerprint=await workflowStepFingerprint(step),ttl=120_000;
  const identity={orgId,runId,nodeId,fingerprint,effect};
  const claim=await claimWorkflowNode(db,{...identity,at:Date.now(),ttl});
@@ -1737,7 +1781,8 @@ async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,e
    try{await localEffects.afterCommit?.();}catch{}
    return {state:'done',result:checkpointResult};
   }
-  const saved=await finishWorkflowNode(db,{...identity,...claim,result,sourceGrantFence:result?.status==='ok'?sourceGrantFence:null,remoteMcpFence:result?.status==='ok'?remoteMcpFence():null,at:Date.now()});
+  const saved=await finishWorkflowNode(db,{...identity,...claim,result,sourceGrantFence:result?.status==='ok'?sourceGrantFence:null,
+   remoteMcpFence:result?.status==='ok'?remoteMcpFence():null,workflowRemoteMcpFence:result?.status==='ok'?workflowRemoteMcpFence():null,at:Date.now()});
   if(saved)return {state:'done',result};
   await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
   return {state:'unknown'};
@@ -1774,7 +1819,7 @@ function workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope
   };
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null, captureRemoteMcpFence = () => {} }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null, captureRemoteMcpFence = () => {}, captureWorkflowRemoteMcpFence = () => {} }) {
   const db = env.DB;
   if (step.channel) {
     const canUseConversation = await mayUseConversation(db, orgId, owner, step.channel);
@@ -1874,6 +1919,38 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           || priorApproval.argsHash !== await remoteMcpArgumentsHash(args)
           || priorApproval.toolDescriptorHash !== await remoteMcpToolDescriptorHash(principalTool))) {
           return { status: 'failed', error: 'The write-capable Remote MCP action has no matching approval for this run, tool and exact arguments.' };
+        }
+        if (!step.agentId) {
+          const identity = { orgId, workflowId: workflow.id, actorId, offered: principalTool, requiresApproval };
+          if (!await authorize(authorizationTrace) || !await workflowRemoteMcpAllowed(env, identity))
+            return { status: 'failed', error: 'The Workflow actor or exact Workflow tool grant is no longer available.' };
+          authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, true);
+          const actor = await getUserByGithubId(db, String(actorId));
+          const authorizationStampBefore = await workflowRemoteMcpAuthorizationStamp(env, identity);
+          if (!actor || !authorizationStampBefore || !await authorize(authorizationTrace)
+            || !await workflowRemoteMcpAllowed(env, identity)) {
+            authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, false);
+            return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
+          }
+          const stampData = JSON.parse(authorizationStampBefore);
+          const result = await callRemoteMcpTool(env, {
+            orgId, githubId: String(actorId), login: actor.login, name: actor.name || actor.login,
+            agentName: `Workflow ${workflow.name}`,
+          }, principalTool, args, { readOnlyOnly: !requiresApproval, requiresApproval, authorization: {
+            kind: 'workflow', workflowId: workflow.id, runId, actorId: String(actorId), toolName: step.toolName,
+            grantGeneration: stampData.grantGeneration, workflowUpdatedAt: stampData.workflowUpdatedAt,
+          } }).catch(() => null);
+          const authorizationStampAfter = await workflowRemoteMcpAuthorizationStamp(env, identity);
+          const allowedAfterCall = await authorize(authorizationTrace)
+            && authorizationStampAfter !== null && authorizationStampAfter === authorizationStampBefore;
+          authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);
+          if (!allowedAfterCall) return { status: 'failed', error: 'Remote MCP access changed while the request was running; the result was discarded.' };
+          if (!result || result.isError) return { status: 'failed', error: 'The Remote MCP tool could not return a result.' };
+          const output = (Array.isArray(result.content) ? result.content : []).filter(part => part?.type === 'text' && typeof part.text === 'string')
+            .map(part => part.text.slice(0, 4000)).join('\n').slice(0, 4000);
+          captureWorkflowRemoteMcpFence(authorizationStampAfter);
+          return { status: 'ok', output: output || 'The Remote MCP tool returned no readable text.',
+            connection: { source: 'remote_mcp', serverId: step.serverId, toolName: step.toolName, actorId } };
         }
         if (!await authorize(authorizationTrace) || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool, { requiresApproval }))
           return { status: 'failed', error: 'The Workflow actor or exact Remote MCP tool grant is no longer available.' };

@@ -700,5 +700,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_app_connection_grants (org_id TEXT NOT NULL,
 CREATE INDEX IF NOT EXISTS idx_hx_agent_app_connection_grants_member ON hx_agent_app_connection_grants(org_id,user_github_id,agent_id);
 -- Fence an in-flight Agent API read against revoke-and-regrant of the same permission.
 ALTER TABLE hx_agent_app_connection_grants ADD COLUMN grant_id TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS hx_workflow_remote_mcp_tool_grants (org_id TEXT NOT NULL, workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, tool_name TEXT NOT NULL, granted_by TEXT NOT NULL, generation TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,workflow_id,server_id,tool_name));
+CREATE INDEX IF NOT EXISTS hx_workflow_remote_mcp_tool_grants_lookup ON hx_workflow_remote_mcp_tool_grants(org_id,workflow_id,server_id);
 -- #KY-015: Smithery Agent grants belong to one membership generation; legacy rows fail closed until re-granted.
 ALTER TABLE hx_agent_app_grants ADD COLUMN membership_since TEXT;
