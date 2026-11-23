@@ -31,6 +31,23 @@ test('execution returns only its assigned lease and structured result', async ()
   await processOne(call, { run: async (payload, options) => { assert.equal(payload.code, 'return 42'); assert.equal(options.timeoutMs, 60000); return { status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }; } });
   assert.deepEqual(calls[1], ['jobs/job/finish', { lease: 'lease', status: 'succeeded', stdout: '42', stderr: '', exitCode: 0 }]);
 });
+test('App action runtime logs redact configured secrets even when output splits them across chunks', async () => {
+ const transmitted=[];
+ const call=async(path,body)=>{
+  if(path==='claim')return {job:{id:'secret-log-job',lease:'lease',payload:{appAction:true,code:'return 1'},environment:{API_TOKEN:'super-secret-token'},timeoutMs:60000}};
+  if(path==='jobs/secret-log-job/log')transmitted.push(body.text);
+  return {ok:true};
+ };
+ await processOne(call,{heartbeatIntervalMs:100000,run:async(_payload,options)=>{
+  await options.onOutput({stream:'stdout',text:'prefix super-sec'});
+  await options.onOutput({stream:'stdout',text:'ret-token suffix'});
+  await options.onOutput({flush:true});
+  return {status:'succeeded',stdout:'done',stderr:'',exitCode:0};
+ }});
+ assert.ok(transmitted.length>0);
+ assert.ok(transmitted.every(text=>!text.includes('super-secret-token')&&!text.includes('super-sec')));
+ assert.equal(transmitted.at(-1),'prefix [REDACTED] suffix');
+});
 test('workflow programs receive the Kylon-aligned fifteen-minute hard cap while generic jobs stay short',async()=>{
  let observed;
  const call=async path=>path==='claim'?{job:{id:'workflow-job',lease:'lease',workflow:true,payload:{workflowProgram:true,code:'await work()'}}}:{ok:true};
