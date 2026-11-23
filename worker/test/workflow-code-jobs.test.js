@@ -555,6 +555,25 @@ test('one approval can authorize ordered writes across connections belonging to 
  }finally{vi.unstubAllGlobals()}
 });
 
+test('a pending single-write approval from before batch rollout remains executable',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'legacy-issue-41',body:{title:'Legacy approved issue'}};
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:[request]});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ const saved=await env.DB.prepare("SELECT data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(run.card_id).first();
+ const card=JSON.parse(saved.data),legacyCard={...card,workflowApproval:{...card.workflowApproval,codeWrite:{jobId:job.id,...request}}};
+ await env.DB.prepare("UPDATE cards SET data=?1 WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(legacyCard),run.card_id).run();
+ const fetch=vi.fn(async()=>new Response('{}',{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const approved={...legacyCard,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
+  await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),run.card_id).run();
+  const settled=await settleWorkflowApproval(env,'program-org',approved);
+  expect(settled.status).toBe('done');expect(fetch).toHaveBeenCalledTimes(1);
+  expect(settled.log[0].externalWrites).toEqual([{appId:request.appId,name:request.name,method:request.method,operationId:request.operationId,status:'sent'}]);
+ }finally{vi.unstubAllGlobals()}
+});
+
 test('a failed write in an approved App batch records the uncertain tail and never replays it',async()=>{
  const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
  const requests=['one','two','three'].map((title,index)=>({appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:`issue-${index+1}`,body:{title}}));

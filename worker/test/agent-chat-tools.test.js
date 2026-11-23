@@ -233,7 +233,7 @@ test('cancellation drain observes a late model body rejection and discards the r
  await Promise.resolve();
  expect(drained).toBe(false);
  rejectBody(new Error('late body failure'));
- expect(await pending).toMatchObject({answer:null,cancelled:true,rounds:1});
+ expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
  expect(await drain).toBe(true);
  expect(p.usage).toEqual([]);
 });

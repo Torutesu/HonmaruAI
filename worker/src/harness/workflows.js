@@ -2167,7 +2167,8 @@ export async function settleWorkflowApproval(env, orgId, card) {
       WHERE a.org_id=?1 AND a.run_id=?2 AND a.job_id=?3 AND a.node_id='program'`).bind(orgId,run.id,ref.codeWrite.jobId).first();
     let definition,programResult;try{definition=JSON.parse(saved?.definition||'null');programResult=JSON.parse(saved?.result||'{}')}catch{return null;}
     const staged=Array.isArray(programResult.connectionWrites)?programResult.connectionWrites:[];
-    const write=ref.codeWrite,step=definition?.steps?.[0],writes=Array.isArray(write.writes)?write.writes:[],sourceBindings=Array.isArray(write.sources)?write.sources:[write],boundSources=new Map();
+    const write=ref.codeWrite,step=definition?.steps?.[0],writes=Array.isArray(write.writes)?write.writes:
+      (typeof write.operationId==='string'&&Object.hasOwn(write,'body')?[{appId:write.appId,name:write.name,ownerId:write.ownerId,version:write.version,method:write.method,operationId:write.operationId,body:write.body}]:[]),sourceBindings=Array.isArray(write.sources)?write.sources:[write],boundSources=new Map();
     for(const binding of sourceBindings){
       const source=step?.sourceConnections?.find(item=>item.appId===binding.appId&&item.name===binding.name);
       if(!source||source.method==='GET'||source.write!==true||String(source.ownerId)!==String(write.ownerId)||String(source.ownerId)!==String(binding.ownerId)||source.version!==binding.version||source.method!==binding.method){
