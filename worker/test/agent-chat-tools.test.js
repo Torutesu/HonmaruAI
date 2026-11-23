@@ -193,6 +193,51 @@ test('stopping an active Harness chat call aborts its fetch signal and discards 
  expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
 });
 
+test('cancellation drain waits for a signal-insensitive model request and does not read its late response',async()=>{
+ const controller=new AbortController(),p=provider();let markStarted,release;
+ const started=new Promise(resolve=>{markStarted=resolve;});
+ const cancelBody=vi.fn();const readBody=vi.fn(async()=>({choices:[{message:{content:'stale'}}]}));
+ p.request=vi.fn((_endpoint,options)=>{
+  markStarted(options.signal);
+  return new Promise(resolve=>{release=()=>resolve({ok:true,body:{cancel:cancelBody},json:readBody});});
+ });
+ const pending=run({provider:p,signal:controller.signal});
+ const providerSignal=await started;
+ controller.abort();
+ expect(providerSignal.aborted).toBe(true);
+ let drained=false;
+ const drain=waitForAgentCancellation(controller.signal).then(value=>{drained=value;return value;});
+ await Promise.resolve();
+ expect(drained).toBe(false);
+ release();
+ expect(await pending).toMatchObject({called:true,answer:null,cancelled:true,rounds:1});
+ expect(readBody).not.toHaveBeenCalled();
+ expect(cancelBody).toHaveBeenCalledTimes(1);
+ expect(await drain).toBe(true);
+ expect(p.usage).toEqual([]);
+});
+
+test('cancellation drain observes a late model body rejection and discards the response',async()=>{
+ const controller=new AbortController(),p=provider();let markBodyStarted,rejectBody;
+ const bodyStarted=new Promise(resolve=>{markBodyStarted=resolve;});
+ const readBody=vi.fn(()=>{
+  markBodyStarted();
+  return new Promise((_resolve,reject)=>{rejectBody=reject;});
+ });
+ p.request=vi.fn(async()=>({ok:true,body:{cancel:vi.fn()},json:readBody}));
+ const pending=run({provider:p,signal:controller.signal});
+ await bodyStarted;
+ controller.abort();
+ let drained=false;
+ const drain=waitForAgentCancellation(controller.signal).then(value=>{drained=value;return value;});
+ await Promise.resolve();
+ expect(drained).toBe(false);
+ rejectBody(new Error('late body failure'));
+ expect(await pending).toMatchObject({answer:null,cancelled:true,rounds:1});
+ expect(await drain).toBe(true);
+ expect(p.usage).toEqual([]);
+});
+
 test('a refused Harness tool request does not silently fall back to an unsupported answer',async()=>{
  fetchMock.get('https://openrouter.ai').intercept({path:'/api/v1/chat/completions',method:'POST'}).reply(400,{error:'tools unsupported'});
  const out=await askAgent({provider:provider(),agent:{name:'Agent',handle:'agent',instructions:''},request:'task',transcript:[],harnessTools:true,tools:{lookup:tool(async()=>{throw new Error('must not run');})}});

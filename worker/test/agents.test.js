@@ -1,10 +1,11 @@
 import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { fetchMock } from "./helpers/fetch-mock.js";
-import { beforeEach, afterEach, expect, test } from "vitest";
+import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { agentTalkFilter, agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat, MAX_CALLED } from "../src/customAgents.js";
+import { agentTalkFilter, agentsCalled, requestFor, parseAgentMarkdown, agentMarkdown, cleanAgentHandle, PRESETS, presetsFor, readResponse, forChat, MAX_CALLED, askAgent } from "../src/customAgents.js";
 import { mayRunAgent } from "../src/harness/agents.js";
+import { waitForAgentCancellation } from "../src/agentCancellation.js";
 
 // Agents a team writes for itself: "@hayao" answers in the thread under the
 // message that named it, as its Markdown instructions say. A team agent is
@@ -1360,6 +1361,26 @@ test('an aborted assignment settles cancelled and unregisters its controller',as
   });
  expect(receivedSignal.aborted).toBe(true);expect(result).toEqual({cancelled:true});expect(unregistered).toBe(true);
  expect(await env.DB.prepare('SELECT status FROM hx_agent_assignments WHERE org_id=?1 AND id=?2').bind(ORG,f.assignmentId).first()).toEqual({status:'cancelled'});
+});
+
+test('assignment cancellation stays unconfirmed while the fallback model request ignores abort',async()=>{
+ vi.useFakeTimers();
+ try{
+  const controller=new AbortController();let start,release;
+  const started=new Promise(resolve=>{start=resolve;});
+  const provider={providerName:'Custom',endpoint:'https://model.example/chat',apiKey:'test',model:'test',request:()=>{
+   start();return new Promise(resolve=>{release=resolve;});
+  }};
+  const pending=askAgent({provider,agent:{name:'Test',handle:'test',instructions:''},request:'hello',transcript:[],playbook:[],where:'DM',askedBy:'mika',readerLanguage:'en',signal:controller.signal});
+  await started;
+  controller.abort();
+  const drain=waitForAgentCancellation(controller.signal);
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(await drain).toBe(false);
+  release({ok:true,json:async()=>({choices:[{message:{content:'late'}}]})});
+  expect(await pending).toMatchObject({called:true,answer:null,cancelled:true});
+  expect(await waitForAgentCancellation(controller.signal)).toBe(true);
+ }finally{vi.useRealTimers();}
 });
 
 test('a file-thread question sends its saved text to the model and persists the grounded reply',async()=>{

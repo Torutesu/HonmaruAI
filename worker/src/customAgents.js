@@ -21,6 +21,7 @@ import { noteUsage } from "./ledger.js";
 import { research as researchLoop, canResearch, readResponse } from "./agentResearch.js";
 import {chatTools, canChatTools} from "./agentChatTools.js";
 import { agentSubagentTool } from "./agentSubagents.js";
+import { trackAgentOperation } from "./agentCancellation.js";
 
 export { readResponse };
 import { chooseRoomAgent } from "./harness/roomRouting.js";
@@ -554,17 +555,24 @@ Request to you (@${agent.handle}): ${request || "(no words beyond your name — 
   if (signal?.aborted || (authorize && !await authorize())) return { called: false, answer: null, cancelled: true };
   let data;
   try {
-    const res = await (provider.request || fetch)(provider.endpoint, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: provider.model, temperature: 0.4, max_tokens: 1400,
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      }),
-      ...(signal ? {signal} : {}),
-    });
-    if (!res.ok) return { called: false, answer: null };
-    data = await res.json();
+    const operation = (async () => {
+      const res = await (provider.request || fetch)(provider.endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: provider.model, temperature: 0.4, max_tokens: 1400,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        }),
+        ...(signal ? {signal} : {}),
+      });
+      return res.ok ? {response: res, data: await res.json()} : {response: res, data: null};
+    })();
+    trackAgentOperation(signal, operation);
+    const result = await operation;
+    if (!result.response.ok) return signal?.aborted
+      ? {called:false,answer:null,cancelled:true}
+      : { called: false, answer: null };
+    data = result.data;
     noteUsage(provider, "agent", data, usageContext);
   } catch {
     return signal?.aborted?{called:false,answer:null,cancelled:true}:{ called: false, answer: null };

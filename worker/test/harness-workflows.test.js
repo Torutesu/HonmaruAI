@@ -3466,6 +3466,58 @@ test('scheduled workspace-budget skips keep the Automation enabled and notify on
  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).toMatchObject({n:2});
 });
 
+test('scheduled workspace-budget notice retries a failed message write once without premature delivery',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {createWorkflow}=await import('../src/harness/workflows.js');
+ const {recordScheduledBudgetSkip,retryWorkflowNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Budget notice retry',trigger:{type:'schedule',cadence:'daily',hour:9,timezone:'UTC'},steps:[{type:'post',channel:'b:ops',text:'Scheduled work'}]},'9302');
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Retry source'});
+ await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:root.row.id});
+ await recordScheduledBudgetSkip(env.DB,ORG,workflow,'workspace_ai_budget');
+
+ let failed=false;
+ const failOnceDB=new Proxy(env.DB,{get(target,property){
+  if(property==='prepare')return sql=>{
+   const statement=target.prepare(sql);
+   if(!sql.includes('INSERT INTO channel_messages'))return statement;
+   return {bind(...values){const bound=statement.bind(...values);return {run(){if(!failed){failed=true;throw new Error('simulated message persistence failure');}return bound.run();}};}};
+  };
+  const value=target[property];return typeof value==='function'?value.bind(target):value;
+ }});
+ expect(await retryWorkflowNotices({...env,DB:failOnceDB})).toBe(0);
+ expect(failed).toBe(true);
+ const pendingNotice=await env.DB.prepare('SELECT delivered_at,last_attempt_at FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first();
+ expect(pendingNotice.delivered_at).toBeNull();
+ expect(pendingNotice.last_attempt_at).toBeTruthy();
+
+ expect(await retryWorkflowNotices(env)).toBe(1);
+ const deliveredNotice=await env.DB.prepare('SELECT delivered_at FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first();
+ expect(deliveredNotice.delivered_at).toBeTruthy();
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND body LIKE '%skipped this scheduled run%'").bind(ORG,root.row.id).first()).n).toBe(1);
+ expect(await retryWorkflowNotices(env)).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND body LIKE '%skipped this scheduled run%'").bind(ORG,root.row.id).first()).n).toBe(1);
+});
+
+test('scheduled workspace-budget notice stays pending when its source or owner membership is revoked',async()=>{
+ const {postMessage}=await import('../src/channels.js');
+ const {createWorkflow}=await import('../src/harness/workflows.js');
+ const {recordScheduledBudgetSkip,deliverScheduledBudgetNotices}=await import('../src/harness/workflowNoticeDelivery.js');
+ const {workflow}=await createWorkflow(env.DB,ORG,{name:'Budget notice authorization',trigger:{type:'schedule',cadence:'daily',hour:9,timezone:'UTC'},steps:[{type:'post',channel:'b:ops',text:'Scheduled work'}]},'9302');
+ const root=await postMessage(env.DB,{orgId:ORG,key:'b:ops',authorLogin:'mika',body:'Authorization source'});
+ await send('POST',`/workflows/${workflow.id}/source`,mika,{orgId:ORG,messageId:root.row.id});
+ await recordScheduledBudgetSkip(env.DB,ORG,workflow,'workspace_ai_budget');
+
+ await env.DB.prepare('UPDATE hx_workflow_sources SET thread_id=?1 WHERE org_id=?2 AND workflow_id=?3').bind('stale-thread',ORG,workflow.id).run();
+ expect(await deliverScheduledBudgetNotices(env,ORG,workflow.id)).toBe(0);
+ expect((await env.DB.prepare('SELECT delivered_at FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).delivered_at).toBeNull();
+
+ await env.DB.prepare('UPDATE hx_workflow_sources SET thread_id=?1 WHERE org_id=?2 AND workflow_id=?3').bind(root.row.id,ORG,workflow.id).run();
+ await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9302'").bind(ORG).run();
+ expect(await deliverScheduledBudgetNotices(env,ORG,workflow.id)).toBe(0);
+ expect((await env.DB.prepare('SELECT delivered_at FROM hx_workflow_schedule_budget_notices WHERE org_id=?1 AND workflow_id=?2').bind(ORG,workflow.id).first()).delivered_at).toBeNull();
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM channel_messages WHERE org_id=?1 AND parent_id=?2 AND body LIKE '%skipped this scheduled run%'").bind(ORG,root.row.id).first()).n).toBe(0);
+});
+
 test('an Agent model request that cannot fit the workspace pause is cancelled before dispatch', async () => {
  const {agent}=await(await send('POST','/channels/agents',mika,{orgId:ORG,name:'Budget reviewer',handle:'budget-reviewer',instructions:'Review and summarize.',scope:'team'})).json();
  const {workflow}=await(await send('POST','/workflows',mika,{orgId:ORG,name:'Agent then post under workspace pause',trigger:{type:'manual'},steps:[
