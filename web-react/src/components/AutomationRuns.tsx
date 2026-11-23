@@ -4,6 +4,7 @@ import {WorkflowRunSummaryCard} from './WorkflowRunSummary'
 import './AutomationRuns.css'
 import React,{useCallback,useEffect,useRef,useState} from 'react'
 import type {HarnessApi,HeldWorkflowEvents,Run,WorkflowRunPage,WorkflowRunSummary as WorkflowRunSummaryData,WorkflowSafety} from '../utils/harness'
+import {HarnessApiError} from '../utils/harness'
 import {useT} from '../utils/i18n'
 import {getLocale} from '../utils/locale'
 import {groupRunsByStartDay,runDayLabel,runTimestampLabel} from '../utils/runHistory'
@@ -84,7 +85,11 @@ export function AutomationRuns({workflowId,api,orgId}:{workflowId:string;api:Har
    setExternalWriteCheck(null)
    await load(0,failedOnly)
   }catch(e){
-   setReconcileError(e instanceof Error?e.message:String(e))
+   if(e instanceof HarnessApiError&&e.status===409){
+    setExternalWriteCheck(null)
+    await load(0,failedOnly)
+    setReconcileError(t('This request changed before the provider check could be recorded. Its current status is shown below.'))
+   }else setReconcileError(e instanceof Error?e.message:String(e))
   }finally{setReconcilingWrite(false)}
  }
  const visibleRuns=runs||[]
