@@ -7,6 +7,7 @@ import { formatRoomGuidelinesSystem } from './guidelines.js';
 import { mayUseConversation } from './conversationAccess.js';
 import { roomRoleState } from './roomRoles.js';
 import { getMode } from './mode.js';
+import { agentAppConnectionTools, agentAppConnectionAllowed } from './agentAppConnectionGrants.js';
 
 const MAX_SCHEMA_BYTES = 16 * 1024;
 const MAX_PROMPT_BYTES = 12_000;
@@ -217,6 +218,7 @@ export async function invokeWorkflowAgent(env, { db = env?.DB, activation, bindi
   if (!await authorize()) return { error: 'Workflow or Agent access changed before invocation.', status: 409 };
   const tools = workflowAgentReadOnlyTools(prepared.skillTools);
   const usedRemoteTools = new Map();
+  const usedAppConnections = new Map();
   Object.assign(tools, await workflowAgentRemoteTools(env, {
     orgId: binding.org_id,
     agentRow: agent,
@@ -225,11 +227,18 @@ export async function invokeWorkflowAgent(env, { db = env?.DB, activation, bindi
     used: usedRemoteTools,
     authorizeAgent: authorize,
   }));
+  if (harnessMode) Object.assign(tools, await agentAppConnectionTools(env, {
+    orgId: binding.org_id, agentId: agent.id, session: { github_id: actorId },
+    used: usedAppConnections, reservedNames: new Set(Object.keys(tools)),
+  }));
   const authorizeWithConnections = async () => {
     if (!await authorize()) return false;
     const results = await Promise.all([...usedRemoteTools.values()].map(tool =>
       workflowRemoteToolAllowed(env, binding.org_id, agent.id, actorId, tool)));
-    return results.every(Boolean);
+    const appResults = await Promise.all([...usedAppConnections.values()].map(grant => agentAppConnectionAllowed(env, {
+      orgId: binding.org_id, agentId: agent.id, session: { github_id: actorId }, ...grant,
+    })));
+    return results.every(Boolean) && appResults.every(Boolean);
   };
   const complete = await completer(env, binding.org_id, actorId, 'workflow_agent_invoke', {
     json: true,

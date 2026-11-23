@@ -2385,6 +2385,28 @@ CREATE TABLE IF NOT EXISTS hx_agent_access (
   PRIMARY KEY (org_id, agent_id),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
+/* A member can authorize only their own fixed, read-only App API connection
+   for one Agent. Generation fields revoke access when the membership, App,
+   Agent, or saved endpoint changes. */
+CREATE TABLE IF NOT EXISTS hx_agent_app_connection_grants (
+  org_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  user_github_id TEXT NOT NULL,
+  membership_since TEXT NOT NULL,
+  connection_name TEXT NOT NULL,
+  connection_version INTEGER NOT NULL,
+  endpoint TEXT NOT NULL,
+  app_access_version INTEGER NOT NULL DEFAULT 0,
+  agent_access_version INTEGER NOT NULL DEFAULT 0,
+  agent_access_mutation_id TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(org_id,app_id,agent_id,user_github_id,connection_name),
+  FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE,
+  FOREIGN KEY(app_id) REFERENCES hx_apps(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_hx_agent_app_connection_grants_member
+  ON hx_agent_app_connection_grants(org_id,user_github_id,agent_id);
 CREATE TABLE IF NOT EXISTS hx_agent_members (
   org_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
