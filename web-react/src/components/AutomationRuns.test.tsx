@@ -2,6 +2,7 @@ import React from 'react'
 import {act,create} from 'react-test-renderer'
 import {expect,test,vi} from 'vitest'
 import {changeLocale,localeReady,t} from '../utils/i18n'
+import {HarnessApiError} from '../utils/harness'
 import {AutomationRuns} from './AutomationRuns'
 const refresh=(tree:any)=>tree.root.findAllByType('button').find((button:any)=>button.props['aria-pressed']===undefined)
 test('execution history loads on demand and exposes failed step details',async()=>{
@@ -31,6 +32,55 @@ test('execution history shows body-free receipts for ordered external Workflow w
  expect(text).toContain(t('External write sent once'));expect(text).toContain(t('External write outcome unknown'));expect(text).toContain(t('External write not sent'))
  expect(text).toContain(t('Request bodies and credentials are not retained in these receipts.'))
  expect(text).not.toContain('app-private');expect(text).not.toContain('private-body');expect(text).not.toContain('access_token')
+ act(()=>tree.unmount())
+})
+test('embedded run history records provider-confirmed outcomes without resending and displays the audit entry',async()=>{
+ const write={appId:'app-private',name:'billing_api',method:'POST',operationId:'create-invoice',status:'unknown' as const}
+ const startedAt='2026-10-24T00:00:00Z'
+ const workflow=vi.fn().mockResolvedValue({canEdit:true,runs:[{id:'run-reconcile',startedAt,status:'failed',log:[{step:1,type:'code',status:'failed',externalWrites:[write]}]}]})
+ const reconcileWorkflowExternalWrite=vi.fn().mockResolvedValue({})
+ let tree:any;act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,reconcileWorkflowExternalWrite}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ const choose=tree.root.findAllByType('button').find((button:any)=>JSON.stringify(button.props.children).includes(t('Provider confirms not sent…')))
+ expect(choose).toBeTruthy()
+ await act(async()=>choose.props.onClick())
+ const confirm=tree.root.findAllByType('button').find((button:any)=>JSON.stringify(button.props.children).includes(t('Record provider check without resending')))
+ expect(confirm).toBeTruthy()
+ await act(async()=>confirm.props.onClick())
+ expect(reconcileWorkflowExternalWrite).toHaveBeenCalledWith('wf','run-reconcile',startedAt,'create-invoice','not_sent')
+ expect(workflow).toHaveBeenCalledTimes(2)
+ expect(JSON.stringify(tree.toJSON())).toContain(t('Request bodies and credentials are not retained in these receipts.'))
+ act(()=>tree.unmount())
+})
+test('embedded run history shows prior provider reconciliation and hides controls without edit permission',async()=>{
+ const write={appId:'app-private',name:'billing_api',method:'POST',operationId:'create-invoice',status:'unknown' as const}
+ const externalWriteReconciliations=[{appId:'app-private',name:'billing_api',method:'POST',operationId:'create-invoice',outcome:'sent' as const,checkedAt:'2026-10-24T01:00:00Z'}]
+ const workflow=vi.fn().mockResolvedValue({canEdit:false,runs:[{id:'run-reconciled',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'code',status:'failed',externalWrites:[write],externalWriteReconciliations}]}]})
+ const reconcileWorkflowExternalWrite=vi.fn();let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,reconcileWorkflowExternalWrite}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ const rendered=JSON.stringify(tree.toJSON())
+ expect(rendered).toContain(t('Provider check recorded: {outcome} · {when}. The request was not resent.',{outcome:t('Confirmed sent'),when:new Date('2026-10-24T01:00:00Z').toLocaleString()}))
+ expect(rendered).not.toContain(t('Provider confirms sent…'))
+ expect(rendered).not.toContain(t('Provider confirms not sent…'))
+ expect(reconcileWorkflowExternalWrite).not.toHaveBeenCalled()
+ act(()=>tree.unmount())
+})
+test('embedded run history refreshes when a stale provider reconciliation loses its compare-and-swap',async()=>{
+ const startedAt='2026-10-24T00:00:00Z'
+ const unknownRun={id:'run-stale',startedAt,status:'failed',log:[{step:1,type:'code',status:'failed',externalWrites:[{appId:'app-private',name:'billing_api',method:'POST',operationId:'create-invoice',status:'unknown' as const}]}]}
+ const confirmedRun={...unknownRun,log:[{...unknownRun.log[0],externalWrites:[{...unknownRun.log[0].externalWrites[0],status:'sent' as const}]}]}
+ const workflow=vi.fn().mockResolvedValueOnce({canEdit:true,runs:[unknownRun]}).mockResolvedValueOnce({canEdit:true,runs:[confirmedRun]})
+ const reconcileWorkflowExternalWrite=vi.fn().mockRejectedValue(new HarnessApiError('Conflict',409));let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow,reconcileWorkflowExternalWrite}as any}/>)})
+ await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}))
+ const choose=tree.root.findAllByType('button').find((button:any)=>JSON.stringify(button.props.children).includes(t('Provider confirms sent…')))
+ await act(async()=>choose.props.onClick())
+ const confirm=tree.root.findAllByType('button').find((button:any)=>JSON.stringify(button.props.children).includes(t('Record provider check without resending')))
+ await act(async()=>confirm.props.onClick())
+ expect(workflow).toHaveBeenCalledTimes(2)
+ expect(JSON.stringify(tree.toJSON())).toContain(t('This request changed before the provider check could be recorded. Its current status is shown below.'))
+ expect(JSON.stringify(tree.toJSON())).toContain(t('External write sent once'))
  act(()=>tree.unmount())
 })
 test('execution history exposes only the sanitized input template in a collapsed details section',async()=>{
