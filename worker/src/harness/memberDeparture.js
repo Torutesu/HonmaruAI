@@ -127,6 +127,7 @@ export async function removeWithResourceHandoff(db, orgId, context, {transferTo,
       .bind(orgId,target.userId,nonce,Date.parse(at)),
     db.prepare(`DELETE FROM hx_remote_mcp_oauth_credentials WHERE org_id=?1 AND user_github_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce),
     db.prepare(`DELETE FROM hx_remote_mcp_oauth_states WHERE org_id=?1 AND user_github_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce),
+    db.prepare(`DELETE FROM hx_app_connection_oauth_states WHERE org_id=?1 AND owner_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce),
     db.prepare(`DELETE FROM hx_agent_members WHERE org_id=?1 AND user_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce),
     db.prepare(`DELETE FROM memberships WHERE org_id=?1 AND user_github_id=?2 AND ${gate}`).bind(orgId,target.userId,nonce));
   const results=await db.batch(batch);
