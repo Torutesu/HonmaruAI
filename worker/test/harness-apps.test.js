@@ -18,6 +18,21 @@ test("column schemas reject explicit unsupported types while retaining omitted-t
   expect(validateValues([column],{starts:'2028-03-01T00:30'})).toHaveLength(1);
 });
 
+test('app edit whose creator access is revoked before the version CAS does not commit',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'tracker',sample:false})).json();
+ const racing={prepare:(...args)=>env.DB.prepare(...args),batch:async statements=>{
+   await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9101'").bind(ORG).run();
+   return env.DB.batch(statements);
+ }};
+ const {updateApp,getApp}=await import('../src/harness/apps.js');
+ const {getTable}=await import('../src/harness/tables.js');
+ const columns=(await getTable(env.DB,ORG,app.tableId)).columns;
+ const result=await updateApp(racing,ORG,app.id,{name:'Must not commit',columns:[...columns,{name:'Added after revoke'}],expectedVersion:app.version},'9101','9101');
+ expect(result).toMatchObject({status:409});
+ expect(await getApp(env.DB,ORG,app.id)).toMatchObject({name:app.name,version:app.version});
+ expect((await getTable(env.DB,ORG,app.tableId)).columns).toEqual(columns);
+});
+
 // The harness (docs/kylon-gap-plan.md): a workspace's mode, its Tables, and
 // the Apps built on them. Simple stays the default; the harness routes answer
 // in either mode.
@@ -3455,7 +3470,7 @@ test('publisher access loss between publish preflight and D1 batch blocks releas
    return env.DB.batch(statements);
  }};
  const {saveCustomRelease}=await import('../src/harness/customApps.js');
- const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version,candidateId:state.candidate?.id},'9105');
+ const result=await saveCustomRelease(raceDb,ORG,current,{action:'publish',version:app.version,candidateId:state.candidate?.id},'9105',{actorId:'9105'});
  expect(result.status).toBe(409);
  const fresh=(await(await get(`/apps/${app.id}?orgId=${ORG}`,mika)).json()).app;
  expect(fresh.definition.custom.published).toBeUndefined();
