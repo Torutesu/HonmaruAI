@@ -377,6 +377,8 @@ CREATE TABLE IF NOT EXISTS hx_slack_drafts (org_id TEXT NOT NULL,id TEXT NOT NUL
 CREATE INDEX IF NOT EXISTS idx_hx_slack_drafts_creator ON hx_slack_drafts(org_id,creator_github_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,server_id), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_tool_grants (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, user_github_id TEXT NOT NULL, membership_since TEXT NOT NULL, server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE, tool_name TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id,user_github_id,server_id,tool_name), FOREIGN KEY(org_id,agent_id) REFERENCES custom_agents(org_id,id) ON DELETE CASCADE);
+ALTER TABLE hx_agent_remote_mcp_grants ADD COLUMN generation TEXT NOT NULL DEFAULT '';
+ALTER TABLE hx_agent_remote_mcp_tool_grants ADD COLUMN generation TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS hx_agent_remote_mcp_tool_grants_lookup ON hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,server_id);
 
 ALTER TABLE hx_remote_mcp_servers ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'headers' CHECK(auth_mode IN ('headers','oauth'));

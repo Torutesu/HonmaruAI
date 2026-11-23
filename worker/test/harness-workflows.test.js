@@ -1621,7 +1621,7 @@ test.each(['workflow', 'followup'])('%s reads an installed skill through its exe
   expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM ai_reservations').first()).n).toBe(0);
 });
 
-test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools and discards access revoked in flight', async () => {
+test('a Workflow Agent discards Remote MCP results when its grant is revoked and regranted in flight', async () => {
   const { agent } = await (await send('POST', '/channels/agents', mika, {
     orgId: ORG, name: 'Policy reviewer', handle: 'policy-reviewer', instructions: 'Review workspace policy.', scope: 'team',
   })).json();
@@ -1686,6 +1686,7 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
   interceptWorkflowRemoteMcp(async () => {
     await env.DB.prepare('DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4')
       .bind(ORG, agent.id, '9302', server.id).run();
+    await grantWorkflowRemoteMcp(agent.id, server.id);
   });
   fetchMock.get('https://api.openai.com').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(async opts => {
     const body = JSON.parse(opts.body);
@@ -1694,14 +1695,15 @@ test('a Workflow Agent uses only workspace-approved read-only Remote MCP tools a
       const name = body.tools.find(tool => tool.function.name.startsWith('mcp_')).function.name;
       return { statusCode: 200, data: { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'policy-search-again', type: 'function', function: { name, arguments: JSON.stringify({ query: 'API keys' }) } }] } }], usage: { prompt_tokens: 10, completion_tokens: 4 } } };
     }
-    throw new Error('The model was called again after the Agent Remote MCP grant was revoked.');
-  }).times(1);
+    expect(body.messages.find(message => message.role === 'tool')?.content).not.toContain('Workspace policy: keep all keys private.');
+    return { statusCode: 200, data: { choices: [{ message: { content: 'The source access changed; I cannot use its result.' } }], usage: { prompt_tokens: 12, completion_tokens: 5 } } };
+  }).times(2);
   try {
     const result = await startRun({ ...env, DATA_KEY: testDataKey, OPENAI_API_KEY: 'sk-test' }, { orgId: ORG, workflow: secondWorkflow, trigger: 'manual', startedBy: '9302' });
-    expect(result.status).toBe('failed');
-    expect(result.log[0].error).toBe('The workflow, source, agent, or conversation access changed while this step was running.');
-    expect(await messages(mika)).toHaveLength(priorMessages.length);
-    expect(result.usage).toMatchObject({ calls: 1, unknownCalls: 0, unpricedCalls: 0 });
+    expect(result.status).toBe('done');
+    expect(result.log[0].output).toBe('The source access changed; I cannot use its result.');
+    expect(await messages(mika)).toHaveLength(priorMessages.length + 1);
+    expect(result.usage).toMatchObject({ calls: 2, unknownCalls: 0, unpricedCalls: 0 });
     fetchMock.assertNoPendingInterceptors();
   } finally { deactivateWorkflowFetchMock(); }
 });
@@ -1742,6 +1744,44 @@ test('a direct Workflow Remote MCP step calls only its explicitly granted tool a
     expect(dispatched).toMatchObject({ name: 'search_policy', arguments: { query: 'retention' } });
     fetchMock.assertNoPendingInterceptors();
   } finally { deactivateWorkflowFetchMock(); }
+});
+
+test('Remote MCP checkpoint commits reject a grant that was revoked and regranted after the result check', async () => {
+  const { agent } = await (await send('POST', '/channels/agents', mika, {
+    orgId: ORG, name: 'Checkpoint reviewer', handle: 'checkpoint-reviewer', instructions: 'Review policy.', scope: 'team',
+  })).json();
+  const server = await addWorkflowRemoteMcpServer([
+    { name: 'search_policy', title: 'Search policy', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+  ], ['search_policy']);
+  await grantWorkflowRemoteMcp(agent.id, server.id);
+  const { createWorkflow, workflowStepFingerprint } = await import('../src/harness/workflows.js');
+  const { workflow } = await createWorkflow(env.DB, ORG, {
+    name: 'Fence Remote MCP checkpoint', trigger: { type: 'manual' },
+    steps: [{ type: 'connection', agentId: agent.id, source: 'remote_mcp', serverId: server.id, toolName: 'search_policy', args: { query: 'policy' } }],
+  }, '9302');
+  const runId = 'run-remote-mcp-grant-generation';
+  const startedAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO hx_workflow_runs(id,org_id,workflow_id,trigger,status,input,log,next_step,started_by,started_at)
+    VALUES(?1,?2,?3,'manual','running','{}','[]',0,'9302',?4)`).bind(runId, ORG, workflow.id, startedAt).run();
+  const step = workflow.steps[0];
+  const identity = { orgId: ORG, runId, nodeId: 'step:1', fingerprint: await workflowStepFingerprint(step), effect: true };
+  const lease = await (await import('../src/harness/workflowCheckpoints.js')).claimWorkflowNode(env.DB, { ...identity, at: Date.now() });
+  const { remoteMcpTools } = await import('../src/harness/remoteMcp.js');
+  const { workflowRemoteToolAuthorizationStamp, workflowRemoteToolCheckpointFence } = await import('../src/harness/workflowAgentRemoteTools.js');
+  const tool = (await remoteMcpTools(env.DB, ORG, { workflowWritable: true })).find(item => item._remote?.serverId === server.id && item._remote?.toolName === 'search_policy');
+  const stamp = await workflowRemoteToolAuthorizationStamp(env, ORG, agent.id, '9302', tool, { workflowOwnerId: '9302' });
+  const remoteMcpFence = workflowRemoteToolCheckpointFence(stamp, { workflowOwnerId: '9302' });
+  expect(remoteMcpFence).toBeTruthy();
+
+  await env.DB.prepare('DELETE FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4')
+    .bind(ORG, agent.id, '9302', server.id).run();
+  await grantWorkflowRemoteMcp(agent.id, server.id);
+  const saved = await (await import('../src/harness/workflowCheckpoints.js')).finishWorkflowNode(env.DB, {
+    ...identity, ...lease, result: { status: 'ok', output: 'must not persist' }, remoteMcpFence, at: Date.now(),
+  });
+  expect(saved).toBe(false);
+  expect((await env.DB.prepare('SELECT status,result FROM hx_workflow_node_checkpoints WHERE org_id=?1 AND run_id=?2 AND node_id=?3')
+    .bind(ORG, runId, 'step:1').first())).toMatchObject({ status: 'running', result: null });
 });
 
 

@@ -286,7 +286,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
             .slice(0, 12_000);
           if (!text) return "The connected Remote MCP source returned no readable text.";
           taint.value = true;
-          onRemoteMcpUsed?.(serverId, offered?._remote?.toolName);
+          onRemoteMcpUsed?.(serverId, offered?._remote?.toolName, authorizationStampAfter, connectionOwnerId);
           return text;
         },
       };

@@ -41,7 +41,7 @@ import { agentSourceAuthorizationStamp, agentSourceProvider } from "./harness/ag
 import { mayUseAgentSlackDraft } from "./harness/agentConnections.js";
 import { executeTool } from "./composio.js";
 import { claimSlackDraft, discardSlackDraft, expireUncertainSlackSend, getSlackDraftInternal, listSlackDestinations, publicSlackDraft, readSlackDraft, releaseSlackDraftClaim, resolveSlackDestination, settleSlackDraft, slackActionResult, slackDraftText, updateSlackDraft } from "./harness/slackDrafts.js";
-import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
+import { agentRemoteMcpAuthorizationStamp, mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
 import { agentAppConnectionAllowed } from "./harness/agentAppConnectionGrants.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
@@ -688,7 +688,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentName: agents.length === 1 ? agents[0].name : null,
       agentLogin: user.login,
       onNativeSourceUsed: (source, providerId) => nativeSourcesUsed.set(source, String(providerId || session?.github_id || "")),
-      onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
+      onRemoteMcpUsed: (serverId, toolName, authorizationStamp, connectionOwnerId = null) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName, connectionOwnerId || session?.github_id]), { serverId, toolName, authorizationStamp, connectionOwnerId }),
       onAppConnectionUsed: (appId, connectionName, grantId) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName, grantId }),
       onSlackDraftCreated: (draftId) => slackDraftIds.push(draftId),
       // An app that may write does so only for agents the person wrote
@@ -720,8 +720,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         for (const [source, expectedProvider] of nativeSourcesUsed) {
           if (await agentSourceProvider(env, { orgId, agentId: agent.id, session, source }) !== expectedProvider) return false;
         }
-        for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
-          if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId, toolName })) return false;
+        for (const { serverId, toolName, authorizationStamp, connectionOwnerId } of remoteMcpToolsUsed.values()) {
+          const grant = { orgId, agentId: agent.id, session, serverId, toolName, connectionOwnerId };
+          if (!authorizationStamp || !await mayUseAgentRemoteMcp(env, grant)) return false;
+          const currentStamp = await agentRemoteMcpAuthorizationStamp(env, grant);
+          if (!currentStamp || currentStamp !== authorizationStamp) return false;
         }
         for (const { appId, connectionName, grantId } of appConnectionsUsed.values()) {
           if (!await agentAppConnectionAllowed(env, { orgId, agentId: agent.id, session, appId, connectionName, grantId })) return false;

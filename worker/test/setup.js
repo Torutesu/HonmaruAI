@@ -32,6 +32,7 @@ beforeEach(async () => {
     else await env.DB.exec(sql);
   }
   for (const sql of workflowArchiveColumns) await applyTestColumn(sql);
+  for (const sql of remoteMcpGrantGenerationColumns) await applyTestColumn(sql);
   // Keep the workflow budget columns in step with the production migration.
   for (const sql of workflowBudgetColumns) {
     if (sql.startsWith('ALTER TABLE ')) await applyTestColumn(sql);
@@ -86,6 +87,10 @@ const workflowBudgetColumns = [
 const workflowArchiveColumns = [
   'ALTER TABLE hx_workflows ADD COLUMN archived_at TEXT',
   'ALTER TABLE hx_workflows ADD COLUMN archived_enabled INTEGER CHECK(archived_enabled IS NULL OR archived_enabled IN (0,1))',
+];
+const remoteMcpGrantGenerationColumns = [
+  "ALTER TABLE hx_agent_remote_mcp_grants ADD COLUMN generation TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE hx_agent_remote_mcp_tool_grants ADD COLUMN generation TEXT NOT NULL DEFAULT ''",
 ];
 
 function sqlStatements(source) {

@@ -2579,6 +2579,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_grants (
   membership_since TEXT NOT NULL,
   server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
+  generation TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (org_id, agent_id, user_github_id, server_id),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
@@ -2590,6 +2591,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_remote_mcp_tool_grants (
   server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
   tool_name TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  generation TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (org_id, agent_id, user_github_id, server_id, tool_name),
   FOREIGN KEY (org_id, agent_id) REFERENCES custom_agents(org_id, id) ON DELETE CASCADE
 );
