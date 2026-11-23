@@ -54,6 +54,22 @@ test('Remote MCP Workflow steps list workspace-approved read and write tools and
  act(()=>tree.unmount())
 })
 
+test('Remote MCP Workflow editor supports an explicit Workflow grant without assigning an Agent',async()=>{
+ const api:any={workflowRemoteMcpTools:vi.fn().mockResolvedValue({workflowRemoteMcpConnections:[{serverId:'mcp-workflow',name:'Shared knowledge',available:true,tools:[{name:'search',title:'Search',description:'Search policies',enabled:true,requiresApproval:false}]}]})};let step:any={type:'connection',source:'remote_mcp',args:{}};let tree:any
+ const renderEditor=()=> <StepEditor api={api} step={step} onChange={next=>{step=next}} onRemove={()=>{}} tables={[]} agents={[{id:'a1',handle:'reader',name:'Reader'}]}/>
+ await act(async()=>{tree=create(renderEditor())})
+ expect(api.workflowRemoteMcpTools).toHaveBeenCalledOnce()
+ expect(tree.root.findByProps({'aria-label':'Agent'}).findAllByType('option')[0].children.join('')).toBe('No Agent (grant to this Workflow)')
+ const connection=tree.root.findByProps({'aria-label':'Remote MCP connection'})
+ act(()=>connection.props.onChange({target:{value:'mcp-workflow\u0000'}}));act(()=>tree.update(renderEditor()))
+ const tool=tree.root.findByProps({'aria-label':'Remote MCP tool'})
+ act(()=>tool.props.onChange({target:{value:'search'}}));act(()=>tree.update(renderEditor()))
+ expect(step).toMatchObject({source:'remote_mcp',serverId:'mcp-workflow',toolName:'search'})
+ expect(JSON.stringify(step)).not.toContain('agentId')
+ expect(tree.root.findAllByType('div').some((node:any)=>node.children.includes('Selecting a tool grants this Workflow access when you save it. Header-auth servers only; OAuth servers need an Agent.'))).toBe(true)
+ act(()=>tree.unmount())
+})
+
 test('Remote MCP Workflow editor distinguishes an Agent-shared OAuth connection from the current user account',async()=>{
  const rows=[
   {serverId:'mcp-1',name:'Knowledge',available:true,tools:[{name:'search',title:'Search',enabled:true,requiresApproval:false}]},

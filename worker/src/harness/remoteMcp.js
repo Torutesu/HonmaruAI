@@ -551,6 +551,7 @@ export async function handleRemoteMcp(request, env, url, input, { orgId, who, ca
       .bind(orgId, id, Date.now()).run();
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_agent_remote_mcp_tool_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
+    await env.DB.prepare("DELETE FROM hx_workflow_remote_mcp_tool_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_app_remote_mcp_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_app_remote_mcp_viewer_grants WHERE org_id = ?1 AND server_id = ?2").bind(orgId, id).run().catch(() => {});
     await env.DB.prepare("DELETE FROM hx_remote_mcp_servers WHERE org_id = ?1 AND id = ?2").bind(orgId, id).run();
@@ -591,6 +592,7 @@ export async function callRemoteMcpTool(env, agent, offeredTool, args, { readOnl
   if (JSON.stringify(args).length > 64_000) return { content: [{ type: "text", text: "Tool arguments are too large." }], isError: true };
   const row = await getServer(env.DB, agent.orgId, ref.serverId);
   if (!row || !parseJSON(row.allowed_tools, []).includes(ref.toolName)) return { content: [{ type: "text", text: "This remote MCP tool is no longer enabled." }], isError: true };
+  if (authorization?.kind === 'workflow' && row.auth_mode !== 'headers') return { content: [{ type: 'text', text: 'Agentless Workflow tools require workspace header credentials.' }], isError: true };
   if (readOnlyOnly) {
     const current = cleanTools(parseJSON(row.tools_json, [])).find((tool) => tool.name === ref.toolName);
     if (!current?.annotations.readOnlyHint || current.annotations.destructiveHint) {

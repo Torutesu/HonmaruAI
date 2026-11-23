@@ -25,11 +25,12 @@ export async function claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effec
  if(row.owner!==owner)return {status:'busy'};
  return {status:'acquired',owner,attempt:row.attempt,leaseUntil:row.lease_until};
 }
-export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,result,at=Date.now(),sourceGrantFence=null,remoteMcpFence=null}) {
+export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,result,at=Date.now(),sourceGrantFence=null,remoteMcpFence=null,workflowRemoteMcpFence=null}) {
  scope(orgId,runId,nodeId);clock(at);if(!valid(owner)||!Number.isSafeInteger(attempt)||attempt<1)throw Error('Invalid checkpoint claim.');
  if(sourceGrantFence&&(!valid(sourceGrantFence.orgId)||!valid(sourceGrantFence.agentId)||!valid(sourceGrantFence.ownerId)||!['notion','github'].includes(sourceGrantFence.source)))throw Error('Invalid checkpoint authorization fence.');
  if(remoteMcpFence&&(sourceGrantFence||![remoteMcpFence.orgId,remoteMcpFence.agentId,remoteMcpFence.actorId,remoteMcpFence.serverId,remoteMcpFence.toolName,remoteMcpFence.workflowOwnerId,remoteMcpFence.actorMembershipSince].every(valid)
   ||remoteMcpFence.legacyGeneration==null&&remoteMcpFence.toolGeneration==null&&remoteMcpFence.shareAudienceType!=='agent'))throw Error('Invalid Remote MCP checkpoint authorization fence.');
+ if(workflowRemoteMcpFence&&(sourceGrantFence||remoteMcpFence||![workflowRemoteMcpFence.orgId,workflowRemoteMcpFence.workflowId,workflowRemoteMcpFence.actorId,workflowRemoteMcpFence.workflowOwnerId,workflowRemoteMcpFence.actorMembershipSince,workflowRemoteMcpFence.ownerMembershipSince,workflowRemoteMcpFence.serverId,workflowRemoteMcpFence.toolName,workflowRemoteMcpFence.grantGeneration,workflowRemoteMcpFence.grantCreatedAt,workflowRemoteMcpFence.workflowUpdatedAt,workflowRemoteMcpFence.modeUpdatedAt,workflowRemoteMcpFence.serverUpdatedAt].every(valid)))throw Error('Invalid Workflow Remote MCP checkpoint authorization fence.');
  const serialized=JSON.stringify(result);if(typeof serialized!=='string'||new TextEncoder().encode(serialized).length>MAX_RESULT)throw Error('Checkpoint result exceeds the limit or is not JSON.');
  const grantFence=sourceGrantFence?` AND EXISTS(SELECT 1 FROM hx_agent_source_grants g
   JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id AND m.created_at=g.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
@@ -57,8 +58,22 @@ export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,re
    AND ((?41 IS NULL AND NOT EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_share_sets sh WHERE sh.org_id=?8 AND sh.server_id=?11 AND sh.owner_github_id=?15))
      OR EXISTS(SELECT 1 FROM hx_remote_mcp_oauth_share_sets sh WHERE sh.org_id=?8 AND sh.server_id=?11 AND sh.owner_github_id=?15 AND sh.version=?41 AND sh.owner_membership_since IS ?42 AND sh.mutation_id IS ?43))
  )`:'';
+ const workflowMcpFence=workflowRemoteMcpFence?` AND EXISTS(
+  SELECT 1 FROM hx_workflow_runs r
+  JOIN hx_workflows w ON w.org_id=r.org_id AND w.id=r.workflow_id
+  JOIN hx_workflow_remote_mcp_tool_grants g ON g.org_id=w.org_id AND g.workflow_id=w.id
+    AND g.server_id=?11 AND g.tool_name=?12 AND g.generation=?13 AND g.created_at=?14 AND g.granted_by=?24
+  JOIN hx_remote_mcp_servers s ON s.org_id=g.org_id AND s.id=g.server_id
+  JOIN memberships actor ON actor.org_id=w.org_id AND actor.user_github_id=?10 AND actor.created_at=?16 AND LOWER(TRIM(COALESCE(actor.role,'guest')))!='guest'
+  JOIN memberships maker ON maker.org_id=w.org_id AND maker.user_github_id=?17 AND maker.created_at=?18 AND LOWER(TRIM(COALESCE(maker.role,'guest')))!='guest'
+  JOIN org_settings os ON os.org_id=w.org_id AND os.mode='harness' AND os.updated_at=?19
+  WHERE r.org_id=?8 AND r.id=?2 AND r.workflow_id=?9 AND r.status='running'
+    AND w.created_by=?17 AND w.updated_at=?15 AND s.auth_mode='headers' AND s.updated_at=?20
+    AND s.allowed_tools=?21 AND s.write_tools=?22 AND s.tools_json=?23
+    AND EXISTS(SELECT 1 FROM json_each(s.allowed_tools) allowed WHERE allowed.value=?12)
+ )`:'';
  const query=db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='done',result=?6,lease_until=0 WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5 AND status='running' AND lease_until>?7
-  AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running')${grantFence}${remoteFence}`);
+  AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running')${grantFence}${remoteFence}${workflowMcpFence}`);
  let params=[orgId,runId,nodeId,owner,attempt,serialized,at];
  if(sourceGrantFence)params.push(sourceGrantFence.orgId,sourceGrantFence.agentId,sourceGrantFence.ownerId,sourceGrantFence.source);
  if(remoteMcpFence)params.push(remoteMcpFence.orgId,remoteMcpFence.agentId,remoteMcpFence.actorId,remoteMcpFence.serverId,remoteMcpFence.toolName,
@@ -71,6 +86,11 @@ export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,re
   remoteMcpFence.credentialGeneration,remoteMcpFence.credentialMembershipSince,remoteMcpFence.credentialCreatedAt,remoteMcpFence.shareVersion,remoteMcpFence.shareOwnerMembershipSince,remoteMcpFence.shareMutationId,
   remoteMcpFence.workflowOwnerMembershipSince,
   remoteMcpFence.shareAudienceType,remoteMcpFence.shareAudienceId,remoteMcpFence.shareAudienceMembershipSince,remoteMcpFence.shareCreatedAt);
+ if(workflowRemoteMcpFence)params.push(workflowRemoteMcpFence.orgId,workflowRemoteMcpFence.workflowId,workflowRemoteMcpFence.actorId,
+  workflowRemoteMcpFence.serverId,workflowRemoteMcpFence.toolName,workflowRemoteMcpFence.grantGeneration,workflowRemoteMcpFence.grantCreatedAt,
+  workflowRemoteMcpFence.workflowUpdatedAt,workflowRemoteMcpFence.actorMembershipSince,workflowRemoteMcpFence.workflowOwnerId,
+  workflowRemoteMcpFence.ownerMembershipSince,workflowRemoteMcpFence.modeUpdatedAt,workflowRemoteMcpFence.serverUpdatedAt,
+  workflowRemoteMcpFence.allowedTools,workflowRemoteMcpFence.writeTools,workflowRemoteMcpFence.toolsJson,workflowRemoteMcpFence.grantedBy);
  const saved=await query.bind(...params).run();
  return !!saved.meta?.changes;
 }

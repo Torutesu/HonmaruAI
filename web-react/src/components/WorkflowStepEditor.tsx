@@ -3,7 +3,7 @@ import {WorkflowProgramEditor} from './WorkflowProgramEditor'
 import {WorkflowConditionEditor,blankCondition} from './WorkflowConditionEditor'
 import {useT} from '../utils/i18n'
 import {Icon} from './Icon'
-import type {App,AppEntity,Step,StepType,Table,HarnessApi} from '../utils/harness'
+import type {App,AppEntity,Step,StepType,Table,HarnessApi,WorkflowRemoteMcpConnection} from '../utils/harness'
 export interface AgentFace {id:string;handle:string;name:string;emoji?:string|null}
 const STEP_TYPES:StepType[]=['post','agent','connection','add_row','update_row','approval','followup']
 const blankStep=(type:StepType):Step=>({type,...(type==='followup'?{minutes:1440}:{}),...(type==='connection'?{source:'notion',action:'search'}:{})})
@@ -18,14 +18,15 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
   api?:HarnessApi; step: Step; onChange: (s: Step) => void; onRemove: () => void; tables: Table[]; agents: AgentFace[]; triggerTable?: Table; previousStepType?: StepType; sourceApps?:Array<{app:Pick<App,'id'|'name'>;entities:AppEntity[]}>
 }) {
   const t = useT()
-  const [mcpConnections,setMcpConnections]=useState<NonNullable<Awaited<ReturnType<NonNullable<HarnessApi>['agentApps']>>['workflowRemoteMcpConnections']>>([])
+  const [mcpConnections,setMcpConnections]=useState<WorkflowRemoteMcpConnection[]>([])
   const [mcpBusy,setMcpBusy]=useState(false),[mcpError,setMcpError]=useState(''),[argsText,setArgsText]=useState(JSON.stringify(step.args||{},null,2))
   useEffect(()=>{setArgsText(JSON.stringify(step.args||{},null,2))},[step.args])
   useEffect(()=>{
     let live=true
-    if(step.type!=='connection'||step.source!=='remote_mcp'||!step.agentId||!api){setMcpConnections([]);setMcpError('');setMcpBusy(false);return()=>{live=false}}
+    if(step.type!=='connection'||step.source!=='remote_mcp'||!api){setMcpConnections([]);setMcpError('');setMcpBusy(false);return()=>{live=false}}
     setMcpBusy(true);setMcpError('')
-    void api.agentApps(step.agentId,{workflow:true}).then(result=>{if(live)setMcpConnections(result.workflowRemoteMcpConnections||[])}).catch(error=>{if(live){setMcpConnections([]);setMcpError(error instanceof Error?error.message:String(error))}}).finally(()=>{if(live)setMcpBusy(false)})
+    const load=step.agentId?api.agentApps(step.agentId,{workflow:true}).then(result=>result.workflowRemoteMcpConnections||[]):api.workflowRemoteMcpTools().then(result=>result.workflowRemoteMcpConnections||[])
+    void load.then(result=>{if(live)setMcpConnections(result)}).catch(error=>{if(live){setMcpConnections([]);setMcpError(error instanceof Error?error.message:String(error))}}).finally(()=>{if(live)setMcpBusy(false)})
     return()=>{live=false}
   },[api,step.agentId,step.source,step.type])
   const set = (patch: Partial<Step>) => onChange({ ...step, ...patch })
@@ -63,8 +64,8 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
       )}
       {step.type === 'connection' && (
         <>
-          <select value={step.agentId || ''} onChange={(e) => set({ agentId: e.target.value })} aria-label={t('Agent')}>
-            <option value="">{t('Choose an agent')}</option>
+          <select value={step.agentId || ''} onChange={(e) => set({ agentId: e.target.value||undefined })} aria-label={t('Agent')}>
+            <option value="">{step.source==='remote_mcp'?t('No Agent (grant to this Workflow)'):t('Choose an agent')}</option>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.emoji ? `${a.emoji} ` : ''}{a.name} (@{a.handle})</option>)}
           </select>
           <select value={step.source || 'notion'} onChange={(e) => set(e.target.value==='remote_mcp'?{source:'remote_mcp',serverId:undefined,connectionOwnerId:undefined,toolName:undefined,action:undefined,query:undefined,args:{}}:{source:e.target.value as 'notion'|'github', action: 'search',serverId:undefined,connectionOwnerId:undefined,toolName:undefined,args:undefined})} aria-label={t('Connection')}>
@@ -88,7 +89,7 @@ export function StepEditor({ api, step, onChange, onRemove, tables, agents, trig
             {!mcpBusy&&!mcpError&&step.agentId&&mcpConnections.some(server=>server.available&&server.tools?.length)&&mcpConnections.every(server=>!server.tools?.some(tool=>tool.enabled))&&<div className="row-sub">{t('Grant this Agent the specific Remote MCP tool in its Connections tab or have a connection owner share it with this Agent.')}</div>}
             {selectedMcpConnection?.tools?.find(tool=>tool.name===step.toolName)?.requiresApproval
               ? <div className="row-sub">{previousStepType==='approval'?t('A human approval is immediately before this write. The approver sees the exact tool and arguments.'):t('Add an approval step immediately before this write. The approver will see the exact tool and arguments.')}</div>
-              : <div className="row-sub">{selectedMcpConnection?.connectionOwnerId?t('This connection was shared with the selected Agent. The owner keeps the login; the Workflow checks the share and Agent access before and after every request.'):t('Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.')}</div>}
+              : <div className="row-sub">{selectedMcpConnection?.connectionOwnerId?t('This connection was shared with the selected Agent. The owner keeps the login; the Workflow checks the share and Agent access before and after every request.'):step.agentId?t('Read-only tools require a specific Agent grant. The Worker checks the schema and permission before and after each request. Do not put credentials in the arguments.'):t('Selecting a tool grants this Workflow access when you save it. Header-auth servers only; OAuth servers need an Agent.')}</div>}
           </>:<>
             <textarea className="context-input" rows={2} placeholder={t('Search query')} value={step.query || ''} onChange={(e) => set({ query: e.target.value, action: 'search' })} aria-label={t('Search query')} />
             <div className="row-sub">{t('Uses the selected Agent’s current connection grant. Read-only search; writes are not available.')}</div>

@@ -1950,6 +1950,17 @@ CREATE TABLE IF NOT EXISTS hx_workflows (
 );
 CREATE INDEX IF NOT EXISTS idx_hx_workflows_org ON hx_workflows(org_id);
 CREATE INDEX IF NOT EXISTS idx_hx_workflows_due ON hx_workflows(enabled, next_run_at);
+CREATE TABLE IF NOT EXISTS hx_workflow_remote_mcp_tool_grants (
+  org_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL REFERENCES hx_workflows(id) ON DELETE CASCADE,
+  server_id TEXT NOT NULL REFERENCES hx_remote_mcp_servers(id) ON DELETE CASCADE,
+  tool_name TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  generation TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, workflow_id, server_id, tool_name)
+);
+CREATE INDEX IF NOT EXISTS hx_workflow_remote_mcp_tool_grants_lookup ON hx_workflow_remote_mcp_tool_grants(org_id,workflow_id,server_id);
 
 /* Paused webhook input is retained without starting a run. */
 CREATE TABLE IF NOT EXISTS hx_workflow_held_events (

@@ -421,3 +421,13 @@ test("a deploy creates workspace Agent source grants from a single migration sta
   expect(table).toEqual({ name: "hx_agent_workspace_source_grants" });
   expect(deployStatements(migrationsSql).some(sql => sql.includes("CREATE TABLE IF NOT EXISTS hx_agent_workspace_source_grants"))).toBe(true);
 });
+
+test('a deploy creates Workflow-scoped Remote MCP tool grants with generation fencing', async () => {
+  await applyDeploy(env.DB);
+  const { results = [] } = await env.DB.prepare("PRAGMA table_info('hx_workflow_remote_mcp_tool_grants')").all();
+  expect(results.map(row => row.name)).toEqual(['org_id','workflow_id','server_id','tool_name','granted_by','generation','created_at']);
+  const statements = deployStatements(migrationsSql).filter(line => line.includes('hx_workflow_remote_mcp_tool_grants'));
+  expect(statements).toHaveLength(2);
+  expect(statements[0]).toMatch(/^CREATE TABLE IF NOT EXISTS hx_workflow_remote_mcp_tool_grants /);
+  expect(statements[1]).toMatch(/^CREATE INDEX IF NOT EXISTS hx_workflow_remote_mcp_tool_grants_lookup /);
+});
