@@ -181,7 +181,7 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
  let programResult={};try{programResult=JSON.parse(stored?.result||'{}')}catch{}
  const step=JSON.parse(binding.definition).steps?.[0],sources=workflowProgramSources(step);
  const connectionWrites=Array.isArray(programResult.connectionWrites)?programResult.connectionWrites:[];
- if(programResult.connectionWrites!==undefined&&(!Array.isArray(programResult.connectionWrites)||connectionWrites.length<1||connectionWrites.length>3))return {settled:false,error:'A Workflow run may stage up to three external App writes.'};
+ if(programResult.connectionWrites!==undefined&&(!Array.isArray(programResult.connectionWrites)||connectionWrites.length>3))return {settled:false,error:'A Workflow run may stage up to three external App writes.'};
  if(connectionWrites.length&&!writeDecision&&binding.job_status==='succeeded'){
   const sources=step?.sourceConnections||[],first=connectionWrites[0],source=sources.find(item=>item.appId===first?.appId&&item.name===first?.name),connectionBindings=new Map();
   const operationIds=new Set();
@@ -269,7 +269,7 @@ export async function settleWorkflowProgram(db,jobId,env=null,{approvedWrite=fal
     AND ${workflowStateAuthority} AND ?6=1
     AND (json_extract(j.payload,'$.context.roomId') IS NULL OR EXISTS(SELECT 1 FROM hx_workflow_sources source WHERE source.org_id=r.org_id AND source.workflow_id=r.workflow_id AND source.channel=json_extract(j.payload,'$.context.roomId')))
     AND EXISTS(SELECT 1 FROM hx_gateways g JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.created_by WHERE g.id=j.gateway_id AND g.org_id=r.org_id AND g.revoked_at IS NULL AND LOWER(TRIM(m.role)) IN ('admin','owner'))
-    AND (json_array_length(j.result,'$.connectionWrites') IS NULL OR ?7=1)
+    AND (json_array_length(j.result,'$.connectionWrites') IS NULL OR json_array_length(j.result,'$.connectionWrites')=0 OR ?7=1)
    ) AS accepted
   FROM hx_workflow_activations a JOIN hx_gateway_jobs j ON j.id=a.job_id AND j.org_id=a.org_id
   JOIN hx_workflow_runs r ON r.id=a.run_id AND r.org_id=a.org_id

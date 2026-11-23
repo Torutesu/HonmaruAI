@@ -830,6 +830,12 @@
             "other": "Cross-App duplicate-key UI, broker and Guest regression cases passed; parity inventory and git diff --check passed."
           },
           "remaining": "The added Worker state-query test must pass in a fresh targeted run, full Worker suite must finish green, and full Gateway suite must be rerun without competing builds before creating a PR. Exact-head CI, main deployment, authenticated production Workflow execution and same-task Kylon comparison remain unverified."
+        },
+        "embeddedWriteReceipts": {
+          "reviewedAt": "2026-11-23",
+          "scope": "App-embedded Automation history now renders the existing per-request sent/unknown/not_sent receipts for approved TypeScript Workflow writes. It shows only connection name, method, operation ID, and outcome; request bodies, credentials, and internal App IDs stay hidden. Narrow layouts wrap the target label. Empty connectionWrites arrays now settle as a no-op rather than leaving a terminal program job unsettled.",
+          "verification": "Worker test/workflow-code-jobs.test.js passed 61/61, including the empty-batch regression; the full Worker suite passed 324 files / 3,731 tests. Web AutomationRuns and i18n tests passed 43/43; the full Web suite passed 286 files / 2,189 tests, with TypeScript noEmit and production build passing. Parity inventory and git diff --check passed. Exact-head CI and production deployment are pending.",
+          "remaining": "App-embedded receipt presentation has not been checked in an authenticated production session or compared side by side with current Kylon history. The broader KY-059 SDK remains partial, and complete authenticated Kylon acceptance remains open."
         }
       },
       "inspectedMain": "78196eb670ae2bdf078151e7f7dd93aa3f378c33"
