@@ -584,12 +584,10 @@ test('an Agent API read is discarded when its grant is revoked and regranted in 
  let releaseFetch,markStarted;
  const fetchGate=new Promise(resolve=>{releaseFetch=resolve;});
  const fetchStarted=new Promise(resolve=>{markStarted=resolve;});
- fetchMock.activate();
- fetchMock.get('https://api.vendor.io').intercept({path:'/v1/items?q=books',method:'GET'}).reply(async()=>{
-   markStarted();
-   await fetchGate;
-   return {statusCode:200,data:{items:[{name:'revoked-result'}]},headers:{'content-type':'application/json'}};
- });
+ const realFetch=globalThis.fetch;
+ globalThis.fetch=async()=>new Response(new ReadableStream({
+   async pull(controller){markStarted();await fetchGate;controller.enqueue(new TextEncoder().encode('{"items":[{"name":"revoked-result"}]}'));controller.close();},
+ }),{status:200,headers:{'content-type':'application/json'}});
  try {
   const pending=tool.run({query:{q:'books'}});
   await fetchStarted;
@@ -602,7 +600,7 @@ test('an Agent API read is discarded when its grant is revoked and regranted in 
   const result=await pending;
   expect(result).toMatch(/Not read: Connection access changed while the request was running/);
   expect(result).not.toContain('revoked-result');
- } finally { releaseFetch?.(); fetchMock.deactivate(); }
+ } finally { releaseFetch?.(); globalThis.fetch=realFetch; }
 });
 
 test('external writes are constrained to the approved method/path and never replayed after uncertain failures',async()=>{

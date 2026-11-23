@@ -25,12 +25,19 @@ export async function claimWorkflowNode(db,{orgId,runId,nodeId,fingerprint,effec
  if(row.owner!==owner)return {status:'busy'};
  return {status:'acquired',owner,attempt:row.attempt,leaseUntil:row.lease_until};
 }
-export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,result,at=Date.now()}) {
+export async function finishWorkflowNode(db,{orgId,runId,nodeId,owner,attempt,result,at=Date.now(),sourceGrantFence=null}) {
  scope(orgId,runId,nodeId);clock(at);if(!valid(owner)||!Number.isSafeInteger(attempt)||attempt<1)throw Error('Invalid checkpoint claim.');
+ if(sourceGrantFence&&(!valid(sourceGrantFence.orgId)||!valid(sourceGrantFence.agentId)||!valid(sourceGrantFence.ownerId)||!['notion','github'].includes(sourceGrantFence.source)))throw Error('Invalid checkpoint authorization fence.');
  const serialized=JSON.stringify(result);if(typeof serialized!=='string'||new TextEncoder().encode(serialized).length>MAX_RESULT)throw Error('Checkpoint result exceeds the limit or is not JSON.');
- const saved=await db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='done',result=?6,lease_until=0 WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5 AND status='running' AND lease_until>?7
-  AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running')`)
-  .bind(orgId,runId,nodeId,owner,attempt,serialized,at).run();
+ const grantFence=sourceGrantFence?` AND EXISTS(SELECT 1 FROM hx_agent_source_grants g
+  JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id AND m.created_at=g.membership_since AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+  JOIN custom_agents a ON a.org_id=g.org_id AND a.id=g.agent_id AND a.deleted_at IS NULL
+  WHERE g.org_id=?8 AND g.agent_id=?9 AND g.user_github_id=?10 AND g.source=?11)`:'';
+ const query=db.prepare(`UPDATE hx_workflow_node_checkpoints SET status='done',result=?6,lease_until=0 WHERE org_id=?1 AND run_id=?2 AND node_id=?3 AND owner=?4 AND attempt=?5 AND status='running' AND lease_until>?7
+  AND EXISTS(SELECT 1 FROM hx_workflow_runs WHERE org_id=?1 AND id=?2 AND status='running')${grantFence}`);
+ const saved=await (sourceGrantFence
+  ?query.bind(orgId,runId,nodeId,owner,attempt,serialized,at,sourceGrantFence.orgId,sourceGrantFence.agentId,sourceGrantFence.ownerId,sourceGrantFence.source)
+  :query.bind(orgId,runId,nodeId,owner,attempt,serialized,at)).run();
  return !!saved.meta?.changes;
 }
 export async function markWorkflowNodeUnknown(db,{orgId,runId,nodeId,owner,attempt,at=Date.now()}) {

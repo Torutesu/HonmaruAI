@@ -1591,6 +1591,24 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         if (!entry && step.type !== 'code') {
           const checkpoint = await executeCheckpointedWorkflowStep(db, {
             orgId, runId, stepNumber: index + 1, step, effect: true,
+            authorizeResult: async result => {
+              if (step.type !== 'connection' || result?.status !== 'ok') return true;
+              const actorId = workflowConnectionActorId(run.startedBy, workflow.id, workflow.createdBy);
+              if (!actorId || !await authorize(authorizationTrace)) return false;
+              if (step.source === 'remote_mcp') {
+                const currentTools = await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []);
+                const currentTool = currentTools.find(tool => tool?._remote?.serverId === step.serverId && tool?._remote?.toolName === step.toolName);
+                const principalTool = workflowRemoteMcpPrincipalTool(currentTool, step, actorId);
+                return Boolean(await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool,
+                  { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) }));
+              }
+              return Boolean(await workflowConnectionPrincipal(env, {
+                orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
+              }));
+            },
+            sourceGrantFence: step.type === 'connection' && ['notion', 'github'].includes(step.source)
+              ? { orgId, agentId: step.agentId, ownerId: workflow.createdBy, source: step.source }
+              : null,
             execute: async () => {
               const priorApproval = step.type === 'connection' && step.source === 'remote_mcp' && workflow.steps[index - 1]?.type === 'approval' && log[index - 1]?.status === 'ok'
                 ? log[index - 1]?.remoteMcpApproval || null : null;
@@ -1673,7 +1691,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
 // Checkpoint ordinary steps so a redelivered continuation can recover a
 // committed result without dispatching the effect again. Read-only connection
 // searches can be reclaimed; every other step is conservatively effectful.
-async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute}) {
+async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute,authorizeResult=async()=>true,sourceGrantFence=null}) {
  const nodeId=`step:${stepNumber}`,fingerprint=await workflowStepFingerprint(step),ttl=120_000;
  const identity={orgId,runId,nodeId,fingerprint,effect};
  const claim=await claimWorkflowNode(db,{...identity,at:Date.now(),ttl});
@@ -1699,6 +1717,9 @@ async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,e
   }
   stopped=true;clearTimeout(timer);await pulse;
   if(leaseLost){await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});return {state:'unknown'};}
+  if (!await authorizeResult(result).catch(() => false)) {
+   result = { status: 'failed', error: 'Connection access changed before the result could be recorded; the result was discarded.' };
+  }
   const localEffects=result?.__workflowLocalEffects;
   if(localEffects){
    const checkpointResult={...result};delete checkpointResult.__workflowLocalEffects;
@@ -1711,7 +1732,7 @@ async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,e
    try{await localEffects.afterCommit?.();}catch{}
    return {state:'done',result:checkpointResult};
   }
-  const saved=await finishWorkflowNode(db,{...identity,...claim,result,at:Date.now()});
+  const saved=await finishWorkflowNode(db,{...identity,...claim,result,sourceGrantFence:result?.status==='ok'?sourceGrantFence:null,at:Date.now()});
   if(saved)return {state:'done',result};
   await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
   return {state:'unknown'};

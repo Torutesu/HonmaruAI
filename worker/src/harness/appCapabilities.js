@@ -272,6 +272,10 @@ export async function invokeConnection(db,orgId,appId,by,input,{env=null,authori
     const reader=response.body.getReader(),chunks=[];let size=0;
     while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>200000){await reader.cancel();return finish('unknown',err('External response exceeds 200KB. Check the service before retrying.',413));}chunks.push(value);}
     const joined=new Uint8Array(size);let offset=0;for(const c of chunks){joined.set(c,offset);offset+=c.byteLength;}
-    return finish('succeeded',{data:JSON.parse(new TextDecoder().decode(joined))});
+    const data=JSON.parse(new TextDecoder().decode(joined));
+    // Authorization can change while a provider streams its response body.
+    // Check again after consuming and parsing it so revoked data never escapes.
+    if(!await authorize())return finish('unknown',err('Connection access changed while the request was running; the result was discarded. If this was a write, check the external service before retrying.',403));
+    return finish('succeeded',{data});
   } catch {return finish('unknown',err('External request failed or timed out. A write may have succeeded; check the service before retrying.',502));}
 }
