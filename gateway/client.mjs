@@ -115,7 +115,9 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
   if (signal?.aborted) abort();
   let checking = false, leaseLost = false, refused = false, browserAuthorizationLost = false, lastHeartbeatAt = Date.now();
   let controlAuthorizationLost = false;
-  let runtimeLogSequence = 0, runtimeLogText = '', runtimeLogAvailable = job.payload?.appAction === true;
+  let runtimeLogSequence = 0, runtimeLogText = '', runtimeLogPending = '', runtimeLogAvailable = job.payload?.appAction === true;
+  const runtimeLogSecrets = [...new Set(Object.values(job.environment || {}).filter(value => typeof value === 'string' && value.length > 0))];
+  const runtimeLogLookbehind = Math.max(0, ...runtimeLogSecrets.map(secret => secret.length - 1));
   let runtimeLogTail = Promise.resolve(), runtimeLogTimer = null, runtimeLogDirty = false, runtimeLogLastSentAt = 0;
   const sendRuntimeLog = () => {
     if (!runtimeLogDirty || !runtimeLogAvailable) return runtimeLogTail;
@@ -131,11 +133,12 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
     if (!runtimeLogAvailable) return runtimeLogTail;
     if (event?.flush === true) {
       clearTimeout(runtimeLogTimer); runtimeLogTimer = null;
+      appendSafeRuntimeLog('', true);
       return sendRuntimeLog();
     }
     const {stream,text}=event||{};
     if (!['stdout','stderr'].includes(stream) || typeof text !== 'string' || !text) return runtimeLogTail;
-    runtimeLogText = `${runtimeLogText}${stream === 'stderr' ? '[stderr] ' : ''}${text}`.slice(-3000);
+    appendSafeRuntimeLog((stream === 'stderr' ? '[stderr] ' : '') + text);
     runtimeLogDirty = true;
     if (!runtimeLogTimer) {
       const delay = Math.max(0, 250 - (Date.now() - runtimeLogLastSentAt));
@@ -143,6 +146,26 @@ export async function processOne(call, { signal, run = runIsolated, runWorkflow 
     }
     return Promise.resolve();
   } : undefined;
+  function appendSafeRuntimeLog(text, flush = false) {
+    runtimeLogPending += text;
+    let releaseLength = flush ? runtimeLogPending.length : Math.max(0, runtimeLogPending.length - runtimeLogLookbehind);
+    if (!flush && releaseLength) {
+      for (const secret of runtimeLogSecrets) {
+        let match = runtimeLogPending.indexOf(secret);
+        while (match !== -1 && match < releaseLength) {
+          if (match + secret.length > releaseLength) releaseLength = match;
+          match = runtimeLogPending.indexOf(secret, match + 1);
+        }
+      }
+    }
+    if (!releaseLength) return;
+    let safe = runtimeLogPending.slice(0, releaseLength);
+    runtimeLogPending = runtimeLogPending.slice(releaseLength);
+    for (const secret of runtimeLogSecrets) safe = safe.split(secret).join('[REDACTED]');
+    runtimeLogText = runtimeLogText + safe;
+    if (runtimeLogText.length > 3000) runtimeLogText = runtimeLogText.slice(-3000);
+    runtimeLogDirty = true;
+  }
   const runFencedBrowserAction = async (authorizationPath, action, options, parentSignal = cancel.signal, controlAuthorization = null) => {
     const monitorStop = new AbortController();
     const actionStop = new AbortController();
