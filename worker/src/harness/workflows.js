@@ -15,7 +15,7 @@ import { mayUseConversation } from './conversationAccess.js';
 import { getMode } from './mode.js';
 import { enforce } from '../ratelimit.js';
 import { callRemoteMcpTool, remoteMcpTools } from './remoteMcp.js';
-import { workflowAgentRemoteTools, workflowRemoteToolAllowed, workflowRemoteToolAuthorizationStamp } from './workflowAgentRemoteTools.js';
+import { workflowAgentRemoteTools, workflowRemoteToolAllowed, workflowRemoteToolAuthorizationStamp, workflowRemoteToolsStillAuthorized, workflowRemoteToolCheckpointFence } from './workflowAgentRemoteTools.js';
 import { mayUseAgentRemoteMcp } from './agentRemoteMcp.js';
 import { searchNotion, searchGithubIssues, formatSourcesForModel } from '../context.js';
 import { agentSourceCredential, hasAgentSourceGrant } from './agentConnections.js';
@@ -1589,6 +1589,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
         }
         if (!entry && step.type === 'code') entry = await enqueueWorkflowProgram(db,{orgId,runId});
         if (!entry && step.type !== 'code') {
+          let remoteMcpResultFence = null;
           const checkpoint = await executeCheckpointedWorkflowStep(db, {
             orgId, runId, stepNumber: index + 1, step, effect: true,
             authorizeResult: async result => {
@@ -1599,8 +1600,11 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
                 const currentTools = await remoteMcpTools(db, orgId, { workflowWritable: true }).catch(() => []);
                 const currentTool = currentTools.find(tool => tool?._remote?.serverId === step.serverId && tool?._remote?.toolName === step.toolName);
                 const principalTool = workflowRemoteMcpPrincipalTool(currentTool, step, actorId);
-                return Boolean(await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool,
-                  { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) }));
+                if (!remoteMcpResultFence || !await workflowRemoteToolAllowed(env, orgId, step.agentId, actorId, principalTool,
+                  { requiresApproval: Boolean(currentTool?._remote?.requiresApproval) })) return false;
+                const currentStamp = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool,
+                  { requiresApproval: Boolean(currentTool?._remote?.requiresApproval), workflowOwnerId: workflow.createdBy });
+                return currentStamp === remoteMcpResultFence.stamp;
               }
               return Boolean(await workflowConnectionPrincipal(env, {
                 orgId, agentId: step.agentId, source: step.source, ownerId: workflow.createdBy, actorId,
@@ -1609,10 +1613,11 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
             sourceGrantFence: step.type === 'connection' && ['notion', 'github'].includes(step.source)
               ? { orgId, agentId: step.agentId, ownerId: workflow.createdBy, source: step.source }
               : null,
+            remoteMcpFence: () => remoteMcpResultFence?.sqlFence || null,
             execute: async () => {
               const priorApproval = step.type === 'connection' && step.source === 'remote_mcp' && workflow.steps[index - 1]?.type === 'approval' && log[index - 1]?.status === 'ok'
                 ? log[index - 1]?.remoteMcpApproval || null : null;
-              const result = await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource, priorApproval });
+              const result = await runStep(env, { orgId, workflow, step, number: index + 1, scope, implicitRowId, identityAliases, runTrigger: run.trigger, runId, depth, owner: workflow.createdBy, runActor: run.startedBy, authorize, authorizationTrace, credentialSource: run.credentialSource, priorApproval, captureRemoteMcpFence: stamp => { remoteMcpResultFence = { stamp, sqlFence: workflowRemoteToolCheckpointFence(stamp, { workflowOwnerId: workflow.createdBy }) }; } });
               return { ...result, ...(authorizationTrace.events.length ? { authorization: authorizationTrace.events } : {}) };
             },
           });
@@ -1691,7 +1696,7 @@ export async function continueRun(env, { orgId, runId, workflow, depth = 0 }) {
 // Checkpoint ordinary steps so a redelivered continuation can recover a
 // committed result without dispatching the effect again. Read-only connection
 // searches can be reclaimed; every other step is conservatively effectful.
-async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute,authorizeResult=async()=>true,sourceGrantFence=null}) {
+async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,effect,execute,authorizeResult=async()=>true,sourceGrantFence=null,remoteMcpFence=()=>null}) {
  const nodeId=`step:${stepNumber}`,fingerprint=await workflowStepFingerprint(step),ttl=120_000;
  const identity={orgId,runId,nodeId,fingerprint,effect};
  const claim=await claimWorkflowNode(db,{...identity,at:Date.now(),ttl});
@@ -1732,7 +1737,7 @@ async function executeCheckpointedWorkflowStep(db,{orgId,runId,stepNumber,step,e
    try{await localEffects.afterCommit?.();}catch{}
    return {state:'done',result:checkpointResult};
   }
-  const saved=await finishWorkflowNode(db,{...identity,...claim,result,sourceGrantFence:result?.status==='ok'?sourceGrantFence:null,at:Date.now()});
+  const saved=await finishWorkflowNode(db,{...identity,...claim,result,sourceGrantFence:result?.status==='ok'?sourceGrantFence:null,remoteMcpFence:result?.status==='ok'?remoteMcpFence():null,at:Date.now()});
   if(saved)return {state:'done',result};
   await markWorkflowNodeUnknown(db,{...identity,...claim,at:Date.now()});
   return {state:'unknown'};
@@ -1769,7 +1774,7 @@ function workflowRowSourceWriteGuard({ orgId, runId, workflow, runTrigger, scope
   };
 }
 
-async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null }) {
+async function runStep(env, { orgId, workflow, step, number, scope, implicitRowId, identityAliases, runTrigger, runId, depth, owner, runActor, authorize, authorizationTrace, credentialSource, priorApproval = null, captureRemoteMcpFence = () => {} }) {
   const db = env.DB;
   if (step.channel) {
     const canUseConversation = await mayUseConversation(db, orgId, owner, step.channel);
@@ -1805,12 +1810,9 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         authorizationTrace.record('agent', agentRow.id, agentAllowed);
         const conversationAllowed = !step.channel || await mayUseConversation(db, orgId, owner, step.channel);
         if (step.channel) authorizationTrace.record('conversation', step.channel, conversationAllowed);
-        const connectionsAllowed = await Promise.all([...remoteToolsUsed.values()].map(async tool => {
-          const ref = tool?._remote;
-          const allowed = await workflowRemoteToolAllowed(env, orgId, agentRow.id, workflowConnectionActorId(runActor, workflow.id, owner), tool);
-          if (ref?.serverId && ref?.toolName) authorizationTrace.record('connection', `${ref.serverId}/${ref.toolName}`, allowed);
-          return allowed;
-        }));
+        const connectionsAllowed = await workflowRemoteToolsStillAuthorized(env, {
+          orgId, agentId: agentRow.id, actorId: workflowConnectionActorId(runActor, workflow.id, owner), used: remoteToolsUsed,
+        });
         const appConnectionsAllowed = await Promise.all([...appConnectionsUsed.values()].map(async grant => {
           const allowed = await agentAppConnectionAllowed(env, { orgId, agentId: agentRow.id,
             session: { github_id: actorId }, ...grant });
@@ -1818,7 +1820,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           return allowed;
         }));
         return workflowAllowed && budget.allowed && agentAllowed && conversationAllowed
-          && connectionsAllowed.every(Boolean) && appConnectionsAllowed.every(Boolean);
+          && connectionsAllowed && appConnectionsAllowed.every(Boolean);
       };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
         usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id },
@@ -1884,7 +1886,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, false);
           return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
         }
-        const authorizationStampBefore = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+        const authorizationStampBefore = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval, workflowOwnerId: owner });
         if (!authorizationStampBefore) {
           authorizationTrace.record('connection', step.serverId + '/' + step.toolName, false);
           return { status: 'failed', error: 'Remote MCP access changed before dispatch; no request was sent.' };
@@ -1896,7 +1898,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           kind: 'agent', agentId: step.agentId, toolName: step.toolName,
           ...(step.connectionOwnerId ? { connectionOwnerId: step.connectionOwnerId } : {}),
         } }).catch(() => null);
-        const authorizationStampAfter = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval });
+        const authorizationStampAfter = await workflowRemoteToolAuthorizationStamp(env, orgId, step.agentId, actorId, principalTool, { requiresApproval, workflowOwnerId: owner });
         const allowedAfterCall = await authorize(authorizationTrace)
           && authorizationStampAfter !== null && authorizationStampAfter === authorizationStampBefore;
         authorizationTrace.record('connection', `${step.serverId}/${step.toolName}`, allowedAfterCall);
@@ -1904,6 +1906,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         if (!result || result.isError) return { status: 'failed', error: 'The Remote MCP tool could not return a result.' };
         const output = (Array.isArray(result.content) ? result.content : []).filter(part => part?.type === 'text' && typeof part.text === 'string')
           .map(part => part.text.slice(0, 4000)).join('\n').slice(0, 4000);
+        captureRemoteMcpFence(authorizationStampAfter);
         return { status: 'ok', output: output || 'The Remote MCP tool returned no readable text.',
           connection: { agentId: step.agentId, source: 'remote_mcp', serverId: step.serverId, toolName: step.toolName, actorId, ...(step.connectionOwnerId ? { connectionOwnerId: step.connectionOwnerId } : {}) } };
       }

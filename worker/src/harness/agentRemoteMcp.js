@@ -168,20 +168,20 @@ export async function setAgentRemoteMcpTool(env, { orgId, agentId, session, serv
   const at = new Date().toISOString();
   const legacy = await currentGrants(env.DB, orgId, agentId, githubId);
   const convert = legacy.has(id) ? offered.filter(item => item?._remote?.serverId === id && !item?._remote?.requiresApproval).map(item => env.DB.prepare(`
-    INSERT OR IGNORE INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at)
-    SELECT ?1,?2,?3,m.created_at,?4,?5,?6 FROM memberships m
+    INSERT OR IGNORE INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at,generation)
+    SELECT ?1,?2,?3,m.created_at,?4,?5,?6,?7 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       JOIN hx_remote_mcp_servers s ON s.org_id=m.org_id AND s.id=?4
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'`)
-    .bind(orgId, agentId, githubId, id, item._remote.toolName, at)) : [];
+    .bind(orgId, agentId, githubId, id, item._remote.toolName, at, crypto.randomUUID())) : [];
   const change = enabled
-    ? env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at)
-      SELECT ?1,?2,?3,m.created_at,?4,?5,?6 FROM memberships m
+    ? env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_tool_grants(org_id,agent_id,user_github_id,membership_since,server_id,tool_name,created_at,generation)
+      SELECT ?1,?2,?3,m.created_at,?4,?5,?6,?7 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       JOIN hx_remote_mcp_servers s ON s.org_id=m.org_id AND s.id=?4
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
-      ON CONFLICT(org_id,agent_id,user_github_id,server_id,tool_name) DO UPDATE SET membership_since=excluded.membership_since,created_at=excluded.created_at`)
-      .bind(orgId, agentId, githubId, id, name, at)
+      ON CONFLICT(org_id,agent_id,user_github_id,server_id,tool_name) DO UPDATE SET membership_since=excluded.membership_since,created_at=excluded.created_at,generation=excluded.generation`)
+      .bind(orgId, agentId, githubId, id, name, at, crypto.randomUUID())
     : env.DB.prepare(`DELETE FROM hx_agent_remote_mcp_tool_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4 AND tool_name=?5`)
       .bind(orgId, agentId, githubId, id, name);
   const statements = [...convert];
@@ -207,14 +207,14 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
     const server = current.find((connection) => connection.serverId === id);
     if (!server?.available) return { error: 'This Remote MCP server has no workspace-approved tools.', status: 409 };
     const result = await env.DB.prepare(`INSERT INTO hx_agent_remote_mcp_grants
-        (org_id,agent_id,user_github_id,membership_since,server_id,created_at)
-      SELECT ?1,?2,?3,m.created_at,?4,?5 FROM memberships m
+        (org_id,agent_id,user_github_id,membership_since,server_id,created_at,generation)
+      SELECT ?1,?2,?3,m.created_at,?4,?5,?6 FROM memberships m
       JOIN custom_agents a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       JOIN hx_remote_mcp_servers s ON s.org_id=m.org_id AND s.id=?4
       WHERE m.org_id=?1 AND m.user_github_id=?3 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       ON CONFLICT(org_id,agent_id,user_github_id,server_id) DO UPDATE SET
-        membership_since=excluded.membership_since,created_at=excluded.created_at`)
-      .bind(orgId, agentId, githubId, id, new Date().toISOString()).run();
+        membership_since=excluded.membership_since,created_at=excluded.created_at,generation=excluded.generation`)
+      .bind(orgId, agentId, githubId, id, new Date().toISOString(), crypto.randomUUID()).run();
     if (!result.meta?.changes && !(await currentGrants(env.DB, orgId, agentId, githubId)).has(id)) {
       return { error: 'The workspace, Agent, or Remote MCP server changed. Reload and try again.', status: 409 };
     }
@@ -231,7 +231,7 @@ export async function setAgentRemoteMcpConnection(env, { orgId, agentId, session
   return { connections: await agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId }) };
 }
 
-export async function agentRemoteMcpAuthorizationStamp(env, { orgId, agentId, session, serverId, toolName, connectionOwnerId = null }) {
+export async function agentRemoteMcpAuthorizationStamp(env, { orgId, agentId, session, serverId, toolName, connectionOwnerId = null, workflowOwnerId = null }) {
   const githubId = String(session?.github_id || '');
   const ownerId = String(connectionOwnerId || githubId);
   if (!githubId || !ownerId || !orgId || !agentId || !serverId || !toolName) return null;
@@ -240,16 +240,16 @@ export async function agentRemoteMcpAuthorizationStamp(env, { orgId, agentId, se
     const workspaceMode = modeSettings?.mode || 'simple';
     if (workspaceMode !== 'harness') return null;
     const [access, memberships, legacyGrant, toolGrants, server, credential, shares] = await Promise.all([
-      env.DB.prepare("SELECT a.created_at,a.updated_at,a.deleted_at,a.scope,a.owner_login,p.access,p.people,p.updated_at AS profile_updated_at,COALESCE(x.version,0) AS access_version,x.mutation_id AS access_mutation,(SELECT json_group_array(json_object('user',r.user_id,'since',r.member_since,'role',r.role,'updatedAt',r.updated_at)) FROM hx_agent_members r WHERE r.org_id=a.org_id AND r.agent_id=a.id) AS agent_members FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id LEFT JOIN hx_agent_access x ON x.org_id=a.org_id AND x.agent_id=a.id WHERE a.org_id=?1 AND a.id=?2").bind(orgId, agentId).first(),
-      env.DB.prepare("SELECT user_github_id,created_at,role FROM memberships WHERE org_id=?1 AND user_github_id IN (?2,?3) ORDER BY user_github_id").bind(orgId, githubId, ownerId).all(),
-      env.DB.prepare("SELECT rowid AS generation,membership_since,created_at FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4").bind(orgId, agentId, githubId, serverId).first(),
-      env.DB.prepare("SELECT rowid AS generation,tool_name,membership_since,created_at FROM hx_agent_remote_mcp_tool_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4 ORDER BY tool_name").bind(orgId, agentId, githubId, serverId).all(),
+      env.DB.prepare("SELECT a.id,a.created_at,a.updated_at,a.deleted_at,a.scope,a.owner_login,p.access,p.people,p.updated_at AS profile_updated_at,COALESCE(x.version,0) AS access_version,x.mutation_id AS access_mutation,(SELECT json_group_array(json_object('user',r.user_id,'since',r.member_since,'role',r.role,'updatedAt',r.updated_at)) FROM hx_agent_members r WHERE r.org_id=a.org_id AND r.agent_id=a.id) AS agent_members FROM custom_agents a LEFT JOIN hx_agent_profiles p ON p.org_id=a.org_id AND p.agent_id=a.id LEFT JOIN hx_agent_access x ON x.org_id=a.org_id AND x.agent_id=a.id WHERE a.org_id=?1 AND a.id=?2").bind(orgId, agentId).first(),
+      env.DB.prepare("SELECT user_github_id,created_at,role FROM memberships WHERE org_id=?1 AND user_github_id IN (?2,?3,?4) ORDER BY user_github_id").bind(orgId, githubId, ownerId, String(workflowOwnerId || githubId)).all(),
+      env.DB.prepare("SELECT generation,membership_since,created_at FROM hx_agent_remote_mcp_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4").bind(orgId, agentId, githubId, serverId).first(),
+      env.DB.prepare("SELECT generation,tool_name,membership_since,created_at FROM hx_agent_remote_mcp_tool_grants WHERE org_id=?1 AND agent_id=?2 AND user_github_id=?3 AND server_id=?4 ORDER BY tool_name").bind(orgId, agentId, githubId, serverId).all(),
       env.DB.prepare("SELECT s.auth_mode,s.updated_at,s.allowed_tools,s.tools_json FROM hx_remote_mcp_servers s WHERE s.org_id=?1 AND s.id=?2").bind(orgId, serverId).first(),
       env.DB.prepare("SELECT rowid AS generation,c.membership_since,c.created_at FROM hx_remote_mcp_oauth_credentials c WHERE c.org_id=?1 AND c.server_id=?2 AND c.user_github_id=?3").bind(orgId, serverId, ownerId).first(),
       env.DB.prepare("SELECT set_row.version,set_row.owner_membership_since,set_row.mutation_id,sh.audience_type,sh.audience_id,sh.audience_membership_since,sh.created_at FROM hx_remote_mcp_oauth_share_sets set_row LEFT JOIN hx_remote_mcp_oauth_shares sh ON sh.org_id=set_row.org_id AND sh.server_id=set_row.server_id AND sh.owner_github_id=set_row.owner_github_id WHERE set_row.org_id=?1 AND set_row.server_id=?2 AND set_row.owner_github_id=?3 ORDER BY sh.audience_type,sh.audience_id").bind(orgId, serverId, ownerId).all(),
     ]);
     return JSON.stringify({
-      orgId, agentId, githubId, serverId, toolName, ownerId, workspaceMode,
+      orgId, agentId, githubId, serverId, toolName, ownerId, workflowOwnerId: String(workflowOwnerId || githubId), workspaceMode,
       workspaceModeUpdatedAt: modeSettings?.updated_at || null,
       access: access || null,
       memberships: memberships?.results || [],
