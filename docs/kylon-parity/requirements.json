@@ -1156,6 +1156,12 @@
           "verification": "Exact-head CI #43579317332, main CI #43581230340, Worker deployment #43581229709 and Web deployment #43581229717 succeeded.",
           "remaining": "DNS rebinding remains open because Worker fetch cannot pin the resolved peer IP. Arbitrary external connections, full App/workflow principal administration, all Kylon operation categories and authenticated operation comparison remain incomplete."
         },
+        "agentCustomApiGrant": {
+          "reviewedAt": "2026-11-23",
+          "scope": "Adds per-Agent grants for each member's own fixed custom App API GET connection in Harness. The Agent tool accepts query values only; URL, method, headers and credentials remain server-side. Membership, App visibility/access version, Agent access generation and exact connection version/endpoint are checked at grant and invocation. Normal Agent chat, Follow-up and both Workflow Agent execution paths recheck authorization around provider reads and before publishing results. Simple mode remains unchanged.",
+          "verification": "Harness company regression passed 51/51 including Simple-mode rejection and connection change revocation. Full Worker suite passed 324 files/3,729 tests. Web tests passed 286 files/2,188 tests; TypeScript and production build passed. Exact-head CI is pending.",
+          "remaining": "Other members' connection delegation, write-capable Agent tools, complete Kylon parity and authenticated live-screen acceptance remain incomplete."
+        },
         "approvalBinding": {
           "reviewedAt": "2026-11-16",
           "scope": "A write-capable Workflow approval now carries a SHA-256 of the canonical rendered arguments, plus the run, workflow, approval step, connection step, server and tool. The accepted decision is copied to the durable run log and the write is refused unless every binding and the exact argument hash still match at execution time. This closes the gap where Workflow input or a same-run argument source could change between approval and dispatch.",

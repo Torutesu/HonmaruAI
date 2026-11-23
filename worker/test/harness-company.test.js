@@ -545,6 +545,31 @@ test('encrypted credentials are context-bound and cleared when the API origin ch
  }finally{useSecretKey({});}
 });
 
+test('Agent API grants are Harness-only, owner-scoped GETs and revoke on connection changes',async()=>{
+ const {saveConnection}=await import('../src/harness/appCapabilities.js');
+ const {agentAppConnectionsForMember,setAgentAppConnectionGrant,agentAppConnectionTools,agentAppConnectionAllowed}=await import('../src/harness/agentAppConnectionGrants.js');
+ await env.DB.prepare("INSERT INTO org_settings (org_id,mode,updated_at) VALUES (?1,'simple','now')").bind(orgId).run();
+ const made=await call('/channels/agents',owner,{name:'API Reader',handle:'api-reader',instructions:'Read APIs'});
+ expect(made.status).toBe(201);
+ const agent=(await made.json()).agent;
+ expect(await agentAppConnectionTools(env,{orgId,agentId:agent.id,session:{github_id:'1'}})).toEqual({});
+ expect((await setAgentAppConnectionGrant(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',enabled:true})).status).toBe(404);
+ await env.DB.prepare("UPDATE org_settings SET mode='harness',updated_at='harness' WHERE org_id=?1").bind(orgId).run();
+ expect(await saveConnection(env.DB,orgId,app.id,'1',{name:'catalog',version:0,endpoint:'https://api.vendor.io/v1/items',method:'GET'})).toMatchObject({saved:true});
+ const before=await agentAppConnectionsForMember(env.DB,{orgId,agentId:agent.id,githubId:'1'});
+ expect(before).toEqual([expect.objectContaining({appId:app.id,name:'catalog',method:'GET',granted:false})]);
+ expect(await setAgentAppConnectionGrant(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog',enabled:true})).toHaveProperty('connections');
+ expect(await agentAppConnectionAllowed(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog'})).toBe(true);
+ const tools=await agentAppConnectionTools(env,{orgId,agentId:agent.id,session:{github_id:'1'}});
+ const tool=Object.values(tools)[0];expect(tool.name).toMatch(/^app_api_/);expect(JSON.stringify(tool)).not.toContain('api.vendor.io');
+ fetchMock.activate();
+ fetchMock.get('https://api.vendor.io').intercept({path:'/v1/items?q=books',method:'GET'}).reply(200,{items:[{name:'book'}]},{headers:{'content-type':'application/json'}});
+ try { expect(await tool.run({query:{q:'books'}})).toContain('book'); } finally { fetchMock.deactivate(); }
+ expect(await saveConnection(env.DB,orgId,app.id,'1',{name:'catalog',version:1,endpoint:'https://api.vendor.io/v1/items',method:'POST'})).toMatchObject({saved:true});
+ expect(await agentAppConnectionAllowed(env,{orgId,agentId:agent.id,session:{github_id:'1'},appId:app.id,connectionName:'catalog'})).toBe(false);
+ expect(await agentAppConnectionTools(env,{orgId,agentId:agent.id,session:{github_id:'1'}})).toEqual({});
+});
+
 test('external writes are constrained to the approved method/path and never replayed after uncertain failures',async()=>{
  const endpoint='https://api.github.com/repos/owner/repo/issues';
  expect((await run('connections',{action:'save',name:'issues',version:0,endpoint,method:'POST'})).status).toBe(200);

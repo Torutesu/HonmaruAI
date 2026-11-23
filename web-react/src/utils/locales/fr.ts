@@ -2266,6 +2266,11 @@ const table: Record<string, string> = {
   "No connected apps are available. Connect one in Tools → Apps first.": "Aucune app connectée n’est disponible. Connectez-en une d’abord dans Outils → Apps.",
   "Workspace owner permits write tools for eligible agents.": "La disponibilité des outils d’écriture dépend aussi du réglage du propriétaire de l’espace de travail.",
   "Allow {agent} to use {app}": "Autoriser {agent} à utiliser {app}",
+  'Custom API connections': 'Connexions API personnalisées',
+  'Allow this Agent to read from your fixed custom API connections. Only GET connections are listed; URLs and credentials stay private.': 'Autorisez cet agent à lire vos connexions API personnalisées à destination fixe. Seules les connexions GET sont affichées ; les URL et identifiants restent privés.',
+  'No enabled GET connections are available for this app.': 'Aucune connexion GET active n’est disponible pour cette app.',
+  'Read-only · GET': 'Lecture seule · GET',
+  'Allow {agent} to read {connection}': 'Autoriser {agent} à lire {connection}',
   // Connected AI apps (MCP)
   'Could not load this connection request.': 'Impossible de charger cette demande de connexion.',
   'Could not authorize this connection.': 'Impossible d’autoriser cette connexion.',

@@ -26,7 +26,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useT } from '../utils/i18n'
 import { getLocale } from '../utils/locale'
 import { Icon } from '../components/Icon'
-import type { AgentProfile, AgentMemory, AgentAppConnection, AgentNativeConnection, AgentRemoteMcpConnection, Skill, SharedSkillInfo } from '../utils/harness'
+import type { AgentProfile, AgentMemory, AgentAppConnection, AgentCustomApiConnection, AgentNativeConnection, AgentRemoteMcpConnection, Skill, SharedSkillInfo } from '../utils/harness'
 import { Shell, useApi, useAct, type HarnessProps } from './HarnessShared'
 
 // Agents as members, and the skills they work by (docs/kylon-gap-plan.md).
@@ -118,6 +118,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
   const [profile, setProfile] = useState<AgentProfile | null>(null)
   const [browserGateways, setBrowserGateways] = useState<Array<{id:string;name:string;lastSeenAt:number|null;revokedAt:number|null}>>([])
   const [agentApps, setAgentApps] = useState<AgentAppConnection[] | null>(null)
+  const [apiConnections, setApiConnections] = useState<AgentCustomApiConnection[] | null>(null)
   const [nativeConnections, setNativeConnections] = useState<AgentNativeConnection[] | null>(null)
   const [remoteMcpConnections, setRemoteMcpConnections] = useState<AgentRemoteMcpConnection[] | null>(null)
   const [canEdit, setCanEdit] = useState(false)
@@ -149,12 +150,12 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
 
   const load = useCallback(() => act('load', async () => {
     const version = ++memoryLoad.current
-    const [p, m, s, all, scopes, apps, privateMemoryPreference] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [], remoteMcpConnections: [] })), api.privateMemoryFollow(agent.id).catch(() => null)])
+    const [p, m, s, all, scopes, apps, privateMemoryPreference] = await Promise.all([api.profile(agent.id), api.memoryPage(agent.id, memoryChannel, undefined, memorySearch), api.agentSkills(agent.id), api.skills(), api.memoryScopes(agent.id), api.agentApps(agent.id).catch(() => ({ connections: [], nativeConnections: [], apiConnections: [], remoteMcpConnections: [] })), api.privateMemoryFollow(agent.id).catch(() => null)])
     if (version !== memoryLoad.current) return
     setMemoryScopes(scopes.scopes)
     setPrivateMemoryPreferenceUnavailable(!privateMemoryPreference)
     if (privateMemoryPreference) setPrivateMemoryFollows(privateMemoryPreference.followAcrossConversations)
-    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setNativeConnections(apps.nativeConnections || []); setRemoteMcpConnections(apps.remoteMcpConnections || [])
+    setProfile(p.profile); setCanEdit(p.canEdit); setPeople(p.profile.people.map((x) => `@${x}`).join(' ')); setAgentApps(apps.connections || []); setApiConnections(apps.apiConnections || []); setNativeConnections(apps.nativeConnections || []); setRemoteMcpConnections(apps.remoteMcpConnections || [])
     setMemories(m.memories); setMemoryCursor(m.nextCursor); setSkills(s.skills); setAllSkills(all.skills)
   }), [api, act, agent.id, memoryChannel, memorySearch])
   useEffect(() => { load(); return () => { ++memoryLoad.current } }, [load])
@@ -168,7 +169,7 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
         // server again. A revoked member must not keep seeing stale controls
         // or memory while that request is in flight.
         ++memoryLoad.current
-        setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null); setNativeConnections(null)
+        setProfile(null); setCanEdit(false); setPeople(''); setAgentApps(null); setApiConnections(null); setNativeConnections(null)
         setMemories([]); setMemoryCursor(null); setSkills([]); setAllSkills([]); setMemoryScopes([])
         setPrivateMemoryFollows(true)
         setPrivateMemoryPreferenceUnavailable(false)
@@ -316,6 +317,23 @@ const AgentMember: React.FC<HarnessProps & { agent: AgentFace; onAccessChanged:(
                 setAgentApps(result.connections)
                 setNativeConnections(result.nativeConnections || [])
                 setRemoteMcpConnections(result.remoteMcpConnections || [])
+              })
+            }} />
+          </label>)}
+        </div>}
+        <div className="rows-title">{t('Custom API connections')}</div>
+        <p className="row-sub">{t('Allow this Agent to read from your fixed custom API connections. Only GET connections are listed; URLs and credentials stay private.')}</p>
+        {apiConnections === null ? <div className="empty">{t('Loading…')}</div> : apiConnections.length === 0 ? <div className="studio-empty">{t('No enabled GET connections are available for this app.')}</div> : <div className="rows">
+          {apiConnections.map(connection => <label className="row static" key={`${connection.appId}:${connection.name}`} data-agent-api-connection={connection.name}>
+            <span className="row-icon"><Icon name="plug" size={18} /></span>
+            <span className="row-main">{connection.appName} · {connection.name}
+              <span className="row-sub">{t('Read-only · GET')}</span>
+            </span>
+            <input type="checkbox" aria-label={t('Allow {agent} to read {connection}', { agent: agent.name, connection: `${connection.appName} · ${connection.name}` })} checked={connection.granted} disabled={!connection.enabled || busy !== null} onChange={e => {
+              const granted = e.currentTarget.checked
+              void act('connection', async () => {
+                const result = await api.setAgentCustomApiConnection(agent.id, connection.appId, connection.name, granted)
+                setApiConnections(result.apiConnections || [])
               })
             }} />
           </label>)}

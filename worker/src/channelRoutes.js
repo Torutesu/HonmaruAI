@@ -42,6 +42,7 @@ import { mayUseAgentSlackDraft } from "./harness/agentConnections.js";
 import { executeTool } from "./composio.js";
 import { claimSlackDraft, discardSlackDraft, expireUncertainSlackSend, getSlackDraftInternal, listSlackDestinations, publicSlackDraft, readSlackDraft, releaseSlackDraftClaim, resolveSlackDestination, settleSlackDraft, slackActionResult, slackDraftText, updateSlackDraft } from "./harness/slackDrafts.js";
 import { mayUseAgentRemoteMcp } from "./harness/agentRemoteMcp.js";
+import { agentAppConnectionAllowed } from "./harness/agentAppConnectionGrants.js";
 import { withRoomGuidelines } from "./harness/guidelines.js";
 import { createRecurringAutomationOffer, isRecurringWorkPrompt } from "./harness/recurringAutomationOffers.js";
 import { followupRequest, scheduleFollowup } from "./harness/followups.js";
@@ -604,6 +605,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   let research = "";
   const nativeSourcesUsed = new Map();
   const remoteMcpToolsUsed = new Map();
+  const appConnectionsUsed = new Map();
   const sourceGrantAgentId = resolved.kind === "agent" && !row.parent_id && agents.length === 1 ? agents[0].id : null;
   if (!row.parent_id && resolved.kind === "agent" && provider && allowance?.allowed) {
     try {
@@ -687,6 +689,7 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       agentLogin: user.login,
       onNativeSourceUsed: (source, providerId) => nativeSourcesUsed.set(source, String(providerId || session?.github_id || "")),
       onRemoteMcpUsed: (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }),
+      onAppConnectionUsed: (appId, connectionName) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName }),
       onSlackDraftCreated: (draftId) => slackDraftIds.push(draftId),
       // An app that may write does so only for agents the person wrote
       // themselves: a teammate's agent's instructions never steer it.
@@ -719,6 +722,9 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         }
         for (const { serverId, toolName } of remoteMcpToolsUsed.values()) {
           if (!await mayUseAgentRemoteMcp(env, { orgId, agentId: agent.id, session, serverId, toolName })) return false;
+        }
+        for (const { appId, connectionName } of appConnectionsUsed.values()) {
+          if (!await agentAppConnectionAllowed(env, { orgId, agentId: agent.id, session, appId, connectionName })) return false;
         }
       }
       return true;

@@ -50,6 +50,7 @@ import { previewMerge, mergeFork } from './appMerge.js';
 import { databaseView, previewMigration, applyMigration, generateMigration, forkDatabase, rebaseLegacyFork, readFork, mutateFork, mutateForkSchema } from './appDatabase.js';
 import { actions, generateAction, saveAction, runAction, readActionJob, listAppActionRuns, connections, saveConnection } from './appCapabilities.js';
 import { appConnectionsForViewer, appConnectionGrantReview, revokeAppConnectionGrantForReview, changeAppConnectionGrant, invokeAppConnection } from './appConnectionGrants.js';
+import { agentAppConnectionsForMember, setAgentAppConnectionGrant } from './agentAppConnectionGrants.js';
 import { startAppConnectionOAuth } from './appConnectionOAuth.js';
 import { appRemoteMcpForViewer, changeAppRemoteMcpGrant, invokeAppRemoteMcp } from './appRemoteMcp.js';
 import { generateCustomSource, saveCustomRelease, validateSource, MAX_PREVIEW_SOURCE } from "./customApps.js";
@@ -1280,18 +1281,32 @@ export async function handleHarness(request, env, url, context = {}) {
     if (sub === 'apps') {
       if (await getMode(env.DB, orgId) !== 'harness') return json({ message: 'Agent app permissions are available in Harness mode.' }, 404);
       if (request.method === 'GET') {
-        const [connections, nativeConnections, remoteMcpConnections] = await Promise.all([
+        const [connections, nativeConnections, remoteMcpConnections, apiConnections] = await Promise.all([
           agentAppConnections(env.DB, { orgId, agentId, githubId: me }),
           agentSourceConnections(env, { orgId, agentId, session: who.session, canManageWorkspace: await allowed(env.DB, orgId, who.session.github_id, 'workspace.mode') }),
           agentRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me }),
+          agentAppConnectionsForMember(env.DB, { orgId, agentId, githubId: me }),
         ]);
         const workflowRemoteMcp = url.searchParams.get('workflow') === '1'
           ? await workflowRemoteMcpConnections(env.DB, { orgId, agentId, githubId: me })
           : undefined;
-        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections,
+        return json({ connections, nativeConnections: nativeConnections.connections, remoteMcpConnections, apiConnections,
           ...(workflowRemoteMcp ? { workflowRemoteMcpConnections: workflowRemoteMcp } : {}) });
       }
       if (request.method === 'POST' || request.method === 'DELETE') {
+        const customAppId = String(input?.customAppId || input?.appId || url.searchParams.get('appId') || '');
+        const customConnectionName = String(input?.customConnectionName || input?.connectionName || url.searchParams.get('connectionName') || '');
+        if (customAppId || customConnectionName) {
+          const result = await setAgentAppConnectionGrant(env, { orgId, agentId, session: who.session,
+            appId: customAppId, connectionName: customConnectionName, enabled: request.method === 'POST' });
+          if (result.error) return json({ message: result.error }, result.status || 400);
+          await announceAgentAccessChanged(env, orgId, agentId, [who.user.login]);
+          await audit(env, request, { orgId,
+            action: request.method === 'POST' ? 'agent.custom_api_granted' : 'agent.custom_api_revoked',
+            actor: person(who.user), entity: { type: 'custom_agent', id: agentId },
+            details: { appId: customAppId, connectionName: customConnectionName } });
+          return json({ apiConnections: result.connections });
+        }
         const source = String(input?.source || url.searchParams.get('source') || '');
         if (source) {
           const granted = request.method === 'POST';

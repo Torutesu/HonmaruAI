@@ -55,6 +55,7 @@ import { prepareAgent, mayRunAgent } from "./agents.js";
 import { scheduleFollowup } from "./followups.js";
 import { withRoomGuidelines } from "./guidelines.js";
 import { workflowAgentRunTools } from './workflowAgentInvoke.js';
+import { agentAppConnectionTools, agentAppConnectionAllowed } from './agentAppConnectionGrants.js';
 
 export const TRIGGERS = ["manual", "schedule", "webhook", "row", "app_record_change"];
 export const STEP_TYPES = ["post", "agent", "connection", "add_row", "update_row", "approval", "followup", "code"];
@@ -1766,6 +1767,8 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       authorizationTrace.record('agent', agentRow.id, canRunAgent);
       if (!canRunAgent) return { status: "failed", error: "Agent access required." };
       const remoteToolsUsed = new Map();
+      const appConnectionsUsed = new Map();
+      const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
       let budgetDeniedReason=null;
       // An Agent grant can change after the workflow step starts. Keep that
       // live grant in the model/tool-loop fence, alongside workflow/source
@@ -1775,7 +1778,7 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
         // A normal answer may finish its own read-only step after recording
         // usage; the loop gate blocks the following side-effect step. Once a
         // Remote MCP tool is in play, also fence the next tool/model round.
-        const budget = remoteToolsUsed.size > 0 && await getMode(env.DB, orgId) === 'harness'
+        const budget = (remoteToolsUsed.size > 0 || appConnectionsUsed.size > 0) && await getMode(env.DB, orgId) === 'harness'
           ? await workspaceBudgetAdmission(env.DB, orgId) : { allowed: true };
         const agentAllowed = await mayRunAgent(db, orgId, agentRow, owner);
         authorizationTrace.record('agent', agentRow.id, agentAllowed);
@@ -1787,7 +1790,14 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
           if (ref?.serverId && ref?.toolName) authorizationTrace.record('connection', `${ref.serverId}/${ref.toolName}`, allowed);
           return allowed;
         }));
-        return workflowAllowed && budget.allowed && agentAllowed && conversationAllowed && connectionsAllowed.every(Boolean);
+        const appConnectionsAllowed = await Promise.all([...appConnectionsUsed.values()].map(async grant => {
+          const allowed = await agentAppConnectionAllowed(env, { orgId, agentId: agentRow.id,
+            session: { github_id: actorId }, ...grant });
+          authorizationTrace.record('connection', `${grant.appId}/${grant.connectionName}`, allowed);
+          return allowed;
+        }));
+        return workflowAllowed && budget.allowed && agentAllowed && conversationAllowed
+          && connectionsAllowed.every(Boolean) && appConnectionsAllowed.every(Boolean);
       };
       const complete = await completer(env, orgId, owner, "workflow_agent", { json: false, maxTokens: 1200, credentialSource,
         usageContext: { roomSlug: step.channel?.startsWith("b:") ? step.channel.slice(2) : null, agentId: agentRow.id, workflowId: workflow.id },
@@ -1798,10 +1808,13 @@ async function runStep(env, { orgId, workflow, step, number, scope, implicitRowI
       if (!complete) return { status: "failed", error: "No AI model, or none left today." };
       const prepared = await prepareAgent(env, orgId, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: step.channel || "", userId: owner, allowPrivate: false });
       const tools = workflowAgentRunTools(prepared.skillTools);
-      const actorId = workflowConnectionActorId(runActor, workflow.id, owner);
       Object.assign(tools, await workflowAgentRemoteTools(env, {
         orgId, agentRow, owner, actorId, reservedNames: new Set(Object.keys(tools)), used: remoteToolsUsed, authorizationTrace, authorizeAgent,
         onBudgetDenied: reason => stopDeploymentRunsIfBudgetPaused(db, orgId, reason, runId),
+      }));
+      if (await getMode(env.DB, orgId) === 'harness') Object.assign(tools, await agentAppConnectionTools(env, {
+        orgId, agentId: agentRow.id, session: { github_id: actorId },
+        used: appConnectionsUsed, reservedNames: new Set(Object.keys(tools)),
       }));
       const agent = await withRoomGuidelines(db, orgId, step.channel, prepared.agent);
       const answer = await complete(
