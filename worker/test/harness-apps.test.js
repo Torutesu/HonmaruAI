@@ -1214,6 +1214,16 @@ test('app version history distinguishes release, inherited release, replacement 
   expect(history.find(version => version.version === 3).release).toMatchObject({ source: 'inline', current: false, status: 'replaced' });
   expect(history.find(version => version.version === 6).release).toMatchObject({ current: false, status: 'stopped' });
   expect(history[0]).toMatchObject({ version: 7, release: null, releaseEvent: { type: 'unpublished', by: '9101' } });
+  let currentVersion=7;
+  for(let i=0;i<50;i++){
+    const saved=await send('POST',path,toru,{orgId:ORG,action:'draft',version:currentVersion,html:`<h1>Older history page ${i}</h1>`});
+    expect(saved.status).toBe(200);currentVersion++;
+  }
+  const firstPage=(await(await get(`/apps/${app.id}/versions?orgId=${ORG}`,toru)).json());
+  expect(firstPage.versions).toHaveLength(50);expect(firstPage.nextCursor).toBe('8');
+  const olderPage=await(await get(`/apps/${app.id}/versions?orgId=${ORG}&before=${firstPage.nextCursor}`,toru)).json();
+  expect(olderPage.versions.find(version=>version.version===6).release).toMatchObject({current:false,status:'stopped'});
+  expect(olderPage.versions.find(version=>version.version===3).release).toMatchObject({current:false,status:'replaced'});
 });
 
 test('custom generation validates source and fails without an existing AI allowance', async () => {
@@ -1661,6 +1671,23 @@ test("a save that loses to another leaves the app's table, definition and histor
   const won = await updateApp(env.DB, ORG, app.id, { expectedVersion: 2, columns: extra }, "9102");
   expect(won.app.version).toBe(3);
   expect((await getTable(env.DB, ORG, app.tableId)).columns.map((c) => c.name)).toContain("Extra");
+});
+
+test('app version history uses a stable 50 version cursor and returns no empty trailing page',async()=>{
+ const {app}=await(await send('POST','/apps',toru,{orgId:ORG,template:'tracker',sample:false})).json();
+ const {updateApp,listVersions}=await import('../src/harness/apps.js');
+ let version=app.version;
+ for(let i=0;i<54;i++){
+   const saved=await updateApp(env.DB,ORG,app.id,{name:`Version ${i+2}`,expectedVersion:version},'9101');
+   expect(saved.app).toBeDefined();version=saved.app.version;
+ }
+ const first=await listVersions(env.DB,ORG,app.id);
+ expect(first.versions).toHaveLength(50);expect(first.versions[0].version).toBe(version);expect(first.versions.at(-1).version).toBe(version-49);
+ expect(first.nextCursor).toBe(String(version-49));
+ const second=await listVersions(env.DB,ORG,app.id,first.nextCursor);
+ expect(second.versions.map(row=>row.version)).toEqual([version-50,version-51,version-52,version-53,1]);
+ expect(second.nextCursor).toBeUndefined();
+ expect(await listVersions(env.DB,ORG,app.id,'not-a-version')).toMatchObject({status:400});
 });
 
 test('app automation drafts are private to editors, inert and protected against concurrent saves',async()=>{

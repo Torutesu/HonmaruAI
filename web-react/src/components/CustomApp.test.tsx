@@ -261,6 +261,14 @@ const commitState = (status: string) => ({
   scope: { visibility:'workspace',accessVersion:0,domainScope:'' },
   approval: { id:'approval-1',status,appVersion:3,commitSha:'a'.repeat(40),sourceHash:'b'.repeat(64),visibility:'workspace',requestedBy:'9101',reviewerId:status==='approved'?'9103':null },
 });
+
+test('custom app history exposes a paged load older action while preserving restore actions',()=>{
+ const next=vi.fn(),restore=vi.fn();vi.stubGlobal('localStorage',{getItem:()=> 'en'});
+ let tree:ReturnType<typeof create>
+ act(()=>{tree=create(<CustomAppReleaseHistory history={[]} busy={false} restore={restore} next={next} hasMore loading={false}/>)})
+ const button=tree!.root.findAllByType('button').find(item=>item.children.join('').includes('Load older versions'))
+ expect(button).toBeDefined();act(()=>button!.props.onClick());expect(next).toHaveBeenCalledOnce();
+});
 const editorApp = { id:'app',version:3,definition:{custom:{draft:'<main>release</main>'}} } as any;
 const editorTable = { id:'table',name:'Tasks',columns:[] } as any;
 

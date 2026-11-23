@@ -2247,7 +2247,7 @@ export async function handleHarness(request, env, url, context = {}) {
     }
     if (sub === "versions") {
       if (request.method === "GET") {
-        const r = await listVersions(env.DB, orgId, appId);
+        const r = await listVersions(env.DB, orgId, appId, url.searchParams.get('before') || undefined);
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "POST") {
