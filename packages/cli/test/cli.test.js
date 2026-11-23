@@ -1389,6 +1389,22 @@ test("gateway run delegates to the installed execution node runtime and exposes 
   assert.match(stdout.read(), /HONMARU_GATEWAY_TOKEN/);
 });
 
+test("gateway install, repair and upgrade require explicit config and confirmation", async () => {
+  const stdout = output(), stderr = output();
+  const calls = [];
+  const env = { HONMARU_API_URL: "https://api.example.com" };
+  const gatewayInstaller = async options => { calls.push(options); return 0; };
+  const run = argv => runCli(argv, { env, stdout: stdout.stream, stderr: stderr.stream, gatewayInstaller });
+
+  for (const action of ["install", "repair", "upgrade"]) {
+    assert.equal(await run(["gateway", action, "--config", "/Users/alice/.config/honmaru/service.json", "--confirm"]), 0);
+  }
+  assert.deepEqual(calls, ["install", "repair", "upgrade"].map(() => ({ configPath: "/Users/alice/.config/honmaru/service.json", confirmed: true, env })));
+  assert.equal(await run(["gateway", "install", "--config", "/tmp/service.json"]), 2);
+  assert.equal(await run(["gateway", "install", "--config", "relative.json", "--confirm"]), 2);
+  assert.equal(calls.length, 3);
+});
+
 test("file share CLI lets agent tokens request and list approvals only", async () => {
   const calls = [];
   const fetcher = async (_url, init) => {

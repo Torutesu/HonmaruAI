@@ -1,7 +1,7 @@
 import { createMcpClient, mcpEndpoint } from "./client.js";
-import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "./gateway.js";
+import { formatGatewayStatus, getGatewayStatus, installGatewayService, runGatewayForeground } from "./gateway.js";
 import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { generateTableSdk, generateTableSdkFromContract } from "./sdk.js";
 
@@ -149,6 +149,9 @@ const GATEWAY_HELP = `Honmaru local execution gateway
 Usage:
   honmaru gateway status [--json]
   honmaru gateway run
+  honmaru gateway install --config /absolute/path/service.json --confirm
+  honmaru gateway repair --config /absolute/path/service.json --confirm
+  honmaru gateway upgrade --config /absolute/path/service.json --confirm
 
 Environment:
   HONMARU_API_URL          HTTPS API origin for your Honmaru workspace
@@ -158,6 +161,7 @@ The gateway polls for isolated jobs and connects outbound. It does not open an
 inbound port. Stop it with Ctrl+C. Do not pass the node token as a command-line
 argument.
 
+Install, repair and upgrade replace the local runtime snapshot and restart the macOS LaunchAgent. Review the service configuration first; the installer requires the referenced token file to be owned by the current user and inaccessible to group or other users, and never puts token contents in process arguments.
 The status command reports the macOS LaunchAgent state without reading or printing credentials.
 `;
 
@@ -1060,7 +1064,7 @@ function formatTools(tools) {
   }).join("\n");
 }
 
-export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr, gatewayRunner = runGatewayForeground, gatewayStatusReader = getGatewayStatus } = {}) {
+export async function runCli(argv, { env = process.env, fetcher = fetch, stdout = process.stdout, stderr = process.stderr, gatewayRunner = runGatewayForeground, gatewayStatusReader = getGatewayStatus, gatewayInstaller = installGatewayService } = {}) {
   const writeOut = (value) => stdout.write(`${value}\n`);
   const writeError = (value) => stderr.write(`honmaru: ${value}\n`);
   const [root, action, ...rest] = argv;
@@ -1085,6 +1089,22 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
         return 0;
       } catch (error) {
         writeError(error instanceof Error ? error.message : "Could not inspect the local gateway service.");
+        return 1;
+      }
+    }
+    if (["install", "repair", "upgrade"].includes(gatewayAction)) {
+      const configIndex = gatewayArgs.indexOf("--config");
+      const confirmed = gatewayArgs.includes("--confirm");
+      const configPath = configIndex >= 0 ? gatewayArgs[configIndex + 1] : undefined;
+      const validArgs = gatewayArgs.length === 3 && configIndex === 0 && typeof configPath === "string" && isAbsolute(configPath) && !/[\u0000-\u001f\u007f]/.test(configPath) && gatewayArgs[2] === "--confirm";
+      if (!validArgs) {
+        writeError(`Usage: honmaru gateway ${gatewayAction} --config /absolute/path/service.json --confirm.`);
+        return 2;
+      }
+      try {
+        return await gatewayInstaller({ configPath, confirmed, env });
+      } catch (error) {
+        writeError(error instanceof Error ? error.message : "The local gateway service could not be installed.");
         return 1;
       }
     }
