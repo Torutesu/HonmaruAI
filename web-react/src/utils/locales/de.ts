@@ -2841,5 +2841,8 @@ Object.assign(table, {
   'External write outcome unknown': 'Ergebnis des Schreibvorgangs unbekannt',
   'External write not sent': 'Nicht gesendet',
   'Request bodies and credentials are not retained in these receipts.': 'Diese Belege speichern weder Anfrageinhalte noch Zugangsdaten.',
+  "This browser can be controlled by people in the conversation, one at a time.": "Die Personen in dieser Unterhaltung können diesen Browser nacheinander steuern.",
+  "This browser is visible to this conversation.": "Dieser Browser ist für diese Unterhaltung sichtbar.",
+  "Another person may be controlling the browser, or your conversation access may have changed.": "Möglicherweise steuert eine andere Person den Browser oder dein Zugriff auf die Unterhaltung hat sich geändert.",
 })
 export default table

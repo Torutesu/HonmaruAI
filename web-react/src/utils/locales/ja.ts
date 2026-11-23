@@ -4608,5 +4608,8 @@ Object.assign(table, {
   'External write outcome unknown': '書き込み結果不明',
   'External write not sent': '書き込み未送信',
   'Request bodies and credentials are not retained in these receipts.': 'この結果記録にはリクエスト本文や認証情報は保存されません。',
+  "This browser can be controlled by people in the conversation, one at a time.": "このブラウザーは会話メンバーが順番に操作できます。",
+  "This browser is visible to this conversation.": "このブラウザーはこの会話で表示されます。",
+  "Another person may be controlling the browser, or your conversation access may have changed.": "ほかの人が操作中か、会話へのアクセス権が変更されています。",
 })
 export default table
