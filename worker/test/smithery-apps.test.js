@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { appTools, readsOnly, sweepAppConnections, tagsFor } from "../src/smitheryApps.js";
+import { agentAppConnections, appTools, readsOnly, sweepAppConnections, tagsFor } from "../src/smitheryApps.js";
 import { agentTools } from "../src/agentTools.js";
 import { forgetPolicies } from "../src/policy.js";
 import { sessionKey } from "../src/db.js";
@@ -346,7 +346,7 @@ test("Harness connections are granted per agent and caller, and revocation stops
   expect(Object.keys(simple).filter((name) => name.startsWith("app")).sort()).toEqual(["app1_archive_everything", "app1_create_issue", "app1_search_issues"]);
   expect(mikaConnection.id).toBeTruthy();
   expect(toruConnection.id).toBeTruthy();
-  await env.DB.prepare("INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, server, created_at) VALUES (?1, ?2, '9702', 'linear', ?3)")
+  await env.DB.prepare("INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, membership_since, server, created_at) SELECT ?1, ?2, '9702', created_at, 'linear', ?3 FROM memberships WHERE org_id=?1 AND user_github_id='9702'")
     .bind(ORG, agentId, new Date().toISOString()).run();
   await call(`/apps/connect?${q}&server=linear`, mika, { method: "DELETE" });
   expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_agent_app_grants WHERE org_id = ?1 AND user_github_id = '9702'").bind(ORG).first()).toEqual({ n: 0 });
@@ -409,6 +409,35 @@ test("Smithery Agent tools recheck Agent audience before dispatch and discard re
     expect(result).not.toContain("MIKA-ONLY-DATA");
     expect(dispatches).toBe(1);
   }finally{globalThis.fetch=real;}
+});
+
+test("Smithery Agent grants do not revive after a member leaves and rejoins", async () => {
+  await allow();
+  await connect(mika, "MIKA-ONLY-DATA");
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-smithery-rejoin-fence";
+  const at = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'smithery-rejoin','Smithery Rejoin','Use granted apps.','team','toru',?3,?3)`)
+    .bind(ORG, agentId, at).run();
+  await env.DB.prepare(`INSERT INTO hx_agent_profiles(org_id,agent_id,access,people,updated_by,updated_at)
+    VALUES(?1,?2,'people','["mika"]','9702',?3)`).bind(ORG, agentId, at).run();
+  await env.DB.prepare("INSERT INTO hx_agent_access(org_id,agent_id,version) VALUES(?1,?2,0)")
+    .bind(ORG, agentId).run();
+  const path = `/hx/agents/${agentId}/apps`;
+  expect((await call(path, mika, { method: "POST", body: { orgId: ORG, server: "linear" } })).status).toBe(200);
+  expect((await agentAppConnections(env.DB, { orgId: ORG, agentId, githubId: "9702" })).find(x => x.server === "linear").granted).toBe(true);
+
+  const oldMembership = await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9702'").bind(ORG).first();
+  await env.DB.prepare("DELETE FROM memberships WHERE org_id=?1 AND user_github_id='9702'").bind(ORG).run();
+  await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES(?1,'9702','member',?2)")
+    .bind(ORG, new Date(Date.now() + 1000).toISOString()).run();
+  expect((await env.DB.prepare("SELECT created_at FROM memberships WHERE org_id=?1 AND user_github_id='9702'").bind(ORG).first()).created_at).not.toBe(oldMembership.created_at);
+  expect((await agentAppConnections(env.DB, { orgId: ORG, agentId, githubId: "9702" })).find(x => x.server === "linear").granted).toBe(false);
+
+  expect((await call(path, mika, { method: "POST", body: { orgId: ORG, server: "linear" } })).status).toBe(200);
+  expect((await agentAppConnections(env.DB, { orgId: ORG, agentId, githubId: "9702" })).find(x => x.server === "linear").granted).toBe(true);
 });
 
 test("Harness native Notion access needs an agent grant and discards a result revoked in flight", async () => {
