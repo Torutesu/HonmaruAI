@@ -46,6 +46,16 @@ test('scope, definition and terminal run status fence checkpoints',async()=>{
  expect(await renew(env.DB,{...id,...first,at:2000})).toBe(false);
  expect(await claim(env.DB,{...id,nodeId:'step:2',at:2000})).toEqual({status:'unavailable'});
 });
+test('revoked native Agent connection grants cannot commit private Workflow output',async()=>{
+ await env.DB.prepare("INSERT INTO users(github_id,login,name,created_at) VALUES('owner','owner','Owner','now')").run();
+ await env.DB.prepare("INSERT INTO memberships(org_id,user_github_id,role,created_at) VALUES('cp','owner','member','member-since')").run();
+ await env.DB.prepare("INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES('cp','agent','agent','Agent','Read policy','team','owner','now','now')").run();
+ await env.DB.prepare("INSERT INTO hx_agent_source_grants(org_id,agent_id,user_github_id,membership_since,source,created_at) VALUES('cp','agent','owner','member-since','notion','now')").run();
+ const lease=await claim(env.DB,{...id,effect:true,at:1000});
+ await env.DB.prepare("DELETE FROM hx_agent_source_grants WHERE org_id='cp' AND agent_id='agent' AND user_github_id='owner' AND source='notion'").run();
+ expect(await finish(env.DB,{...id,...lease,at:2000,result:{status:'ok',output:'private result'},sourceGrantFence:{orgId:'cp',agentId:'agent',ownerId:'owner',source:'notion'}})).toBe(false);
+ expect((await env.DB.prepare("SELECT status,result FROM hx_workflow_node_checkpoints WHERE run_id='run' AND node_id='step:1'").first())).toMatchObject({status:'running',result:null});
+});
 test('a mismatched retry cannot steal an expired pure node before reporting conflict',async()=>{
  await claim(env.DB,{...id,at:1000,ttl:1000});
  expect(await claim(env.DB,{...id,effect:true,at:2000})).toEqual({status:'conflict'});
