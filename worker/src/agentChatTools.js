@@ -108,7 +108,7 @@ export async function chatTools({provider, instructions, input, tools, authorize
     let data;
     try {
       const operation = Promise.resolve().then(async () => {
-        const response = await (provider.request || fetch)(provider.endpoint, {method: 'POST', headers,
+        response = await (provider.request || fetch)(provider.endpoint, {method: 'POST', headers,
           body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: maxOutputTokens}),
           signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
         if (signal?.aborted) {
@@ -119,7 +119,12 @@ export async function chatTools({provider, instructions, input, tools, authorize
       });
       trackAgentOperation(signal, operation);
       ({response, data} = await operation);
-    } catch { return signal?.aborted?done({cancelled:true}):done(); }
+    } catch {
+      // A successful response means the model call happened even when its
+      // body fails while cancellation is draining the operation.
+      if (response?.ok) called = true;
+      return signal?.aborted?done({cancelled:true}):done();
+    }
     if (signal?.aborted) return done({called: true, cancelled: true});
     if (!response.ok) return done({refused: !called, status: response.status});
     called = true;
