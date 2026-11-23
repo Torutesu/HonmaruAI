@@ -237,8 +237,8 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
       if (!appConnectionsUsed.size || !r.agent_id) return true;
       if (await getMode(env.DB, r.org_id).catch(() => null) !== 'harness') return false;
       const session = { github_id: String(r.created_by) };
-      for (const { appId, connectionName } of appConnectionsUsed.values()) {
-        if (!await agentAppConnectionAllowed(env, { orgId: r.org_id, agentId: r.agent_id, session, appId, connectionName })) return false;
+      for (const { appId, connectionName, grantId } of appConnectionsUsed.values()) {
+        if (!await agentAppConnectionAllowed(env, { orgId: r.org_id, agentId: r.agent_id, session, appId, connectionName, grantId })) return false;
       }
       return true;
     };
@@ -268,7 +268,7 @@ export async function runDueFollowups(env, { now: at = new Date(), limit = 25 } 
         const prepared = agentRow
           ? await prepareAgent(env, r.org_id, { id: agentRow.id, name: agentRow.name, handle: agentRow.handle, instructions: agentRow.instructions }, null, { channel: r.channel || "", userId: r.created_by })
           : { agent: { name: "AI", handle: "AI", instructions: "You are the team's AI." } };
-        const personalTools = await personalFollowupTools(env, r, (source, providerId) => nativeSourcesUsed.set(source, String(providerId || r.created_by)), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }), (appId, connectionName) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName }));
+        const personalTools = await personalFollowupTools(env, r, (source, providerId) => nativeSourcesUsed.set(source, String(providerId || r.created_by)), (serverId, toolName) => remoteMcpToolsUsed.set(JSON.stringify([serverId, toolName]), { serverId, toolName }), (appId, connectionName, grantId) => appConnectionsUsed.set(`${appId}:${connectionName}`, { appId, connectionName, grantId }));
         // Company Apps are available in Harness only, and only when their
         // access scope names this exact shared conversation. Personal Apps
         // and external personal connectors stay inside the person's Agent DM.

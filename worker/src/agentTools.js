@@ -245,7 +245,7 @@ export async function agentTools(env, { orgId, session, language = "en", persona
           if (typeof result === 'string' && result.length > 0 && !/^Not (?:read|searched):/.test(result)) {
             taint.value = true;
             const ref = offered._appConnection;
-            if (ref?.appId && ref?.connectionName) onAppConnectionUsed?.(ref.appId, ref.connectionName);
+            if (ref?.appId && ref?.connectionName) onAppConnectionUsed?.(ref.appId, ref.connectionName, ref.grantId || '');
           }
           return result;
         },

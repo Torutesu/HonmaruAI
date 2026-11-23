@@ -18,7 +18,7 @@ async function allowed(db, orgId, agentId, appId, userId) {
 }
 
 async function grantSnapshot(db, { orgId, agentId, appId, connectionName, userId }) {
-  return db.prepare(`SELECT g.created_at AS grantedAt,g.membership_since AS membershipSince,
+  return db.prepare(`SELECT g.created_at AS grantedAt,g.grant_id AS grantId,g.membership_since AS membershipSince,
       g.connection_version AS connectionVersion,g.endpoint,g.app_access_version AS appAccessVersion,
       g.agent_access_version AS agentAccessVersion,g.agent_access_mutation_id AS agentAccessMutationId,
       c.version AS currentVersion,c.endpoint AS currentEndpoint,c.method AS currentMethod,c.enabled,
@@ -43,6 +43,7 @@ export async function agentAppConnectionAllowed(env, input) {
     if (!row) return false;
     const access = await appAccess(env.DB, input.orgId, input.appId);
     return Boolean(row.currentMembershipSince === row.membershipSince
+      && (input.grantId === undefined || row.grantId === input.grantId)
       && Number(row.enabled) === 1 && row.currentMethod === 'GET'
       && Number(row.currentVersion) === Number(row.connectionVersion)
       && row.currentEndpoint === row.endpoint
@@ -60,7 +61,7 @@ export async function agentAppConnectionsForMember(db, { orgId, agentId, githubI
     || !await memberLogin(db, orgId, userId).catch(() => null)
     || !await mayRunAgent(db, orgId, { id: agentId }, userId).catch(() => false)) return [];
   const { results = [] } = await db.prepare(`SELECT c.app_id AS appId,a.name AS appName,c.name AS connectionName,
-      c.version,c.method,c.enabled,g.created_at AS grantedAt
+      c.version,c.method,c.enabled,g.created_at AS grantedAt,g.grant_id AS grantId
     FROM hx_app_connections c JOIN hx_apps a ON a.org_id=c.org_id AND a.id=c.app_id AND a.deleted_at IS NULL
     LEFT JOIN hx_agent_app_connection_grants g ON g.org_id=c.org_id AND g.app_id=c.app_id
       AND g.agent_id=?2 AND g.connection_name=c.name AND g.user_github_id=c.created_by
@@ -71,7 +72,8 @@ export async function agentAppConnectionsForMember(db, { orgId, agentId, githubI
   const safe = [];
   for (const row of results) if (await mayUseAppAsMember(db, orgId, row.appId, userId).catch(() => false)) {
     safe.push({ appId: row.appId, appName: row.appName, name: row.connectionName,
-      version: row.version, method: row.method, enabled: Boolean(row.enabled), granted: Boolean(row.grantedAt) });
+      version: row.version, method: row.method, enabled: Boolean(row.enabled), granted: Boolean(row.grantedAt),
+      ...(row.grantedAt ? { grantId: row.grantId || '' } : {}) });
   }
   return safe;
 }
@@ -94,20 +96,21 @@ export async function setAgentAppConnectionGrant(env, { orgId, agentId, session,
     WHERE a.org_id=?1 AND a.id=?2 AND a.deleted_at IS NULL`).bind(orgId, agentId).first();
   if (!app || !agentAccess) return error('This Agent or App is unavailable.', 404);
   const now = new Date().toISOString();
+  const grantId = crypto.randomUUID();
   if (enabled) {
-    await env.DB.prepare(`INSERT INTO hx_agent_app_connection_grants(org_id,app_id,agent_id,user_github_id,membership_since,connection_name,connection_version,endpoint,app_access_version,agent_access_version,agent_access_mutation_id,created_at)
-      SELECT ?1,?2,?3,?4,m.created_at,?5,?6,?7,?8,?9,?10,?11 FROM memberships m
+    await env.DB.prepare(`INSERT INTO hx_agent_app_connection_grants(org_id,app_id,agent_id,user_github_id,membership_since,connection_name,connection_version,endpoint,app_access_version,agent_access_version,agent_access_mutation_id,grant_id,created_at)
+      SELECT ?1,?2,?3,?4,m.created_at,?5,?6,?7,?8,?9,?10,?11,?12 FROM memberships m
       JOIN hx_apps a ON a.org_id=m.org_id AND a.id=?2 AND a.deleted_at IS NULL
       JOIN custom_agents ca ON ca.org_id=m.org_id AND ca.id=?3 AND ca.deleted_at IS NULL
       JOIN hx_app_connections c ON c.org_id=m.org_id AND c.app_id=?2 AND c.created_by=?4 AND c.name=?5
         AND c.version=?6 AND c.endpoint=?7 AND c.method='GET' AND c.enabled=1
-      WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?12 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+      WHERE m.org_id=?1 AND m.user_github_id=?4 AND m.created_at=?13 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
       ON CONFLICT(org_id,app_id,agent_id,user_github_id,connection_name) DO UPDATE SET
         membership_since=excluded.membership_since,connection_version=excluded.connection_version,endpoint=excluded.endpoint,
         app_access_version=excluded.app_access_version,agent_access_version=excluded.agent_access_version,
-        agent_access_mutation_id=excluded.agent_access_mutation_id,created_at=excluded.created_at`)
+        agent_access_mutation_id=excluded.agent_access_mutation_id,grant_id=excluded.grant_id,created_at=excluded.created_at`)
       .bind(orgId, appId, agentId, userId, name, connection.version, connection.endpoint, app.version || 0,
-        agentAccess.version || 0, agentAccess.mutationId || null, now, member.membershipSince).run();
+        agentAccess.version || 0, agentAccess.mutationId || null, grantId, now, member.membershipSince).run();
     if (!await agentAppConnectionAllowed(env, { orgId, agentId, appId, connectionName: name, session })) return error('Access changed. Reload and try again.', 409);
   } else {
     await env.DB.prepare(`DELETE FROM hx_agent_app_connection_grants WHERE org_id=?1 AND app_id=?2 AND agent_id=?3 AND user_github_id=?4 AND connection_name=?5`)
@@ -129,7 +132,7 @@ export async function agentAppConnectionTools(env, { orgId, agentId, session, us
     let name = `app_api_${slug}`;
     let suffix = 2;
     while (reservedNames.has(name) || tools[name]) name = `app_api_${slug}_${suffix++}`;
-    const ref = { appId: row.appId, connectionName: row.name };
+    const ref = { appId: row.appId, connectionName: row.name, grantId: row.grantId || '' };
     tools[name] = {
       name,
       title: `Read ${row.appName || 'App'} API`,
@@ -139,7 +142,7 @@ export async function agentAppConnectionTools(env, { orgId, agentId, session, us
       run: async ({ query = {} } = {}) => {
         if (used) used.set(`${ref.appId}:${ref.connectionName}`, ref);
         if (!query || typeof query !== 'object' || Array.isArray(query) || Object.keys(query).length > 100) return 'Not read: query parameters must be a bounded object.';
-        const grant = { orgId, agentId, appId: ref.appId, connectionName: ref.connectionName, session };
+        const grant = { orgId, agentId, appId: ref.appId, connectionName: ref.connectionName, grantId: ref.grantId, session };
         if (!await agentAppConnectionAllowed(env, grant)) return 'Not read: this Agent, App, or API connection no longer has permission.';
         const result = await invokeConnection(env.DB, orgId, ref.appId, userId, { name: ref.connectionName, version: row.version, query }, {
           env, authorize: () => agentAppConnectionAllowed(env, grant),
