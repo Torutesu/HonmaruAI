@@ -426,6 +426,9 @@ test('an action created or updated elsewhere cannot be overwritten with a stale 
 });
 test('personal exact endpoint proxy refuses unsafe URLs, redirects and revoked connections',async()=>{
  for(const u of ['http://api.github.com/user','https://127.0.0.1/x','https://api.github.com.evil.test/x','https://api.github.com:8443/x','https://api.github.com/user?token=x','https://slack.com/api/chat.postMessage'])expect(connectionEndpoint(u)).toBeNull();
+ expect(connectionEndpoint('https://api.vendor.io/v1/items')).toBe('https://api.vendor.io/v1/items');
+ expect(connectionEndpoint('https://api.vendor.io/v1/items','POST')).toBe('https://api.vendor.io/v1/items');
+ for(const u of ['https://api.vendor.io.example/v1/items','https://api.vendor.test/v1/items','https://api.vendor.io/v1/items#secret','https://user:pass@api.vendor.io/v1/items'])expect(connectionEndpoint(u)).toBeNull();
  const conf={action:'save',name:'github',version:0,endpoint:'https://api.github.com/repos/Torutesu/HonmaruAI'};
  expect((await run('connections',conf)).status).toBe(200);
  expect((await (await run('connections',undefined,member)).json()).connections).toEqual([]);
@@ -438,6 +441,12 @@ test('personal exact endpoint proxy refuses unsafe URLs, redirects and revoked c
  expect((await run('connections',{action:'request',name:'github',version:1})).status).toBe(502);
  expect((await run('connections',{...conf,version:1,enabled:false})).status).toBe(200);
  expect((await run('connections',{action:'request',name:'github',version:2})).status).toBe(404);
+ const custom={action:'save',name:'vendor_api',version:0,endpoint:'https://api.vendor.io/v1/items',method:'GET'};
+ expect((await run('connections',custom)).status).toBe(200);
+ const visible=await (await run('connections')).json();
+ expect(JSON.stringify(visible)).not.toContain('token');
+ fetchMock.get('https://api.vendor.io').intercept({path:'/v1/items',method:'GET'}).reply(200,{items:[{id:'row-1'}]},{headers:{'content-type':'application/json'}});
+ expect(await (await run('connections',{action:'request',name:'vendor_api',version:1})).json()).toEqual({data:{items:[{id:'row-1'}]}});
 });
 test('generation errors fail closed',async()=>{
  expect((await generateAction('sum',null)).status).toBe(503);

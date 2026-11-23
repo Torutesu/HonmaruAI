@@ -1128,9 +1128,14 @@
       "evidence": {
         "reviewedAt": "2026-10-18",
         "inspectedMain": "6857eb049b624bbfdb60a3f71a5f81546d0468ce",
-        "implementedScope": "Six supported API hosts, fixed operations, encrypted credentials, bounded response/time and ambiguous-write retry suppression are implemented.",
-        "remaining": "Arbitrary custom API hosts are not implemented. Remote MCP is tracked separately under KY-077.",
-        "verification": "docs/kylon-parity/verification.md"
+        "implementedScope": "Built-in providers retain narrow host/path/method rules. A connection owner can also register one exact public HTTPS URL and method for a custom API; generated code cannot select another host, path, method or header. Reserved credential query fields, credentials in URLs, ports, private IP literals and reserved/private hostnames are rejected. Existing encrypted bearer storage, authorization checks, redirect refusal, timeout/response bounds and write request deduplication apply. Workflow writes remain frozen to the saved binding and require the existing per-run approval.",
+        "remaining": "Custom authentication beyond bearer tokens, provider-specific discovery, DNS-pinned hostname verification and authenticated provider acceptance are not implemented or verified. Remote MCP is tracked separately under KY-077.",
+        "latestIncrement": {
+          "status": "candidate; full Worker suite and exact-head CI pending",
+          "scope": "Allow owner-registered public HTTPS custom API endpoints with a fixed URL/method while preserving built-in provider restrictions, encrypted bearer credentials, redirect refusal, bounded execution and approved non-replayable writes. No paid service or new schema is added.",
+          "verification": "Regression first failed against the previous allowlist implementation, then the focused Connection and Workflow Worker suites passed 110 tests; the full Web suite passed 2,188 tests, TypeScript check and production build passed. Full Worker suite, exact-head CI, deployment and authenticated external API acceptance are pending.",
+          "remaining": "DNS-pinned verification, custom auth schemes and live provider/Kylon acceptance remain open."
+        }
       }
     },
     {

@@ -6,6 +6,7 @@ import { workspaceBudgetAdmission } from '../workspaceAIBudget.js';
 import { allowed } from '../permissions.js';
 import { mayUseApp } from './resourceAccess.js';
 import { decodeAppOAuth, encodeAppOAuth, parseAppOAuth, refreshGoogleToken } from './appConnectionOAuth.js';
+import { isPublicUrl } from '../links.js';
 const err = (error, status=400) => ({ error, status });
 const nameOK = n => typeof n === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(n);
 const codeOK = c => typeof c === 'string' && c.trim() && c.length <= 40000;
@@ -114,20 +115,27 @@ export async function listAppActionRuns(db,orgId,appId,by,{limit=50,cursor}={}) 
   return {runs,...(hasMore&&last?{nextCursor:btoa(JSON.stringify({createdAt:last.createdAt,id:last.id}) )}:{})};
 }
 
-// Only documented public API origins. No user-hosted URL, DNS rebinding or redirects.
-// Each exact URL/method is approved by the connection owner. Code cannot select
-// a path, method, query or header. Write bodies are shown for separate host approval.
+// Built-in providers have narrow path rules. Custom APIs are limited to one
+// owner-registered public HTTPS URL and method; callers cannot choose a host,
+// path, method or header. Cloudflare's Worker egress proxy blocks private and
+// local destinations, while this layer rejects private literals and names.
+// Redirects stay disabled so credentials never cross the registered origin.
 export const CONNECTION_HOSTS=['api.github.com','api.notion.com','slack.com','www.googleapis.com','sheets.googleapis.com','api.open-meteo.com'];
 export function connectionEndpoint(raw, method='GET') {
   try {
     if(!['GET','POST','PATCH','PUT','DELETE'].includes(method))return null;
     const u=new URL(raw);
-    if(u.protocol!=='https:'||!CONNECTION_HOSTS.includes(u.hostname)||u.port||u.username||u.password||u.hash||raw.length>2000)return null;
+    const builtin=CONNECTION_HOSTS.includes(u.hostname);
+    const blockedSuffix=['.test','.example','.invalid','.example.com','.example.net','.example.org'];
+    if(u.protocol!=='https:'||u.port||u.username||u.password||u.hash||raw.length>2000||
+      (!builtin&&(!isPublicUrl(u.href)||blockedSuffix.some(s=>u.hostname===s.slice(1)||u.hostname.endsWith(s)))))return null;
     // OAuth credentials belong in the sealed bearer field, never in a URL/log.
     if([...u.searchParams.keys()].some(k=>/token|secret|key|password|auth/i.test(k)))return null;
-    // Slack GET methods can mutate state; admit only read endpoints explicitly.
-    if(u.hostname==='slack.com'&&!(method==='GET'?/^\/api\/(?:conversations\.(?:history|replies|info|list)|users\.(?:info|list))$/:/^\/api\/chat\.(?:postMessage|update|delete)$/).test(u.pathname))return null;
-    if(method!=='GET') {
+    // Built-in services keep narrow method/path rules. A custom service is
+    // owner-configured as one exact endpoint/method and writes are approved
+    // separately for every request.
+    if(builtin&&u.hostname==='slack.com'&&!(method==='GET'?/^\/api\/(?:conversations\.(?:history|replies|info|list)|users\.(?:info|list))$/:/^\/api\/chat\.(?:postMessage|update|delete)$/).test(u.pathname))return null;
+    if(builtin&&method!=='GET') {
       const paths={
         'api.github.com':/^\/repos\/[\w.-]+\/[\w.-]+\/(?:issues|pulls)(?:\/[0-9]+)?(?:\/comments)?(?:\/[0-9]+)?$/,
         'api.notion.com':/^\/v1\/(?:pages|blocks)(?:\/[a-fA-F0-9-]+)?(?:\/children)?$/,
