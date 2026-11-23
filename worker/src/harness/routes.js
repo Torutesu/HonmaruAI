@@ -2112,7 +2112,7 @@ export async function handleHarness(request, env, url, context = {}) {
         const imported=await fetchGitHubCommitSource(who.session.github_access_token,input);
         if(imported.error)return fail(imported);
         const commit={...imported.commit};
-        const result=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit,assets:imported.assets});
+        const result=await saveCustomRelease(env.DB,orgId,app,{action:'draft',version:app.version,html:imported.source},me,{commit,assets:imported.assets,actorId:me});
         if(result.error)return fail(result);
         await audit(env,request,{orgId,action:'app.custom_commit_imported',actor:person(who.user),entity:{type:'app',id:appId,name:app.name},details:{version:result.version,repo:commit.owner+'/'+commit.repo,commitSha:commit.sha,sourceHash:commit.sourceHash,assetCount:imported.assets.length}});
         return json({saved:true,version:result.version,commit:{...commit,appVersion:result.version},assetCount:imported.assets.length});
@@ -2151,7 +2151,7 @@ export async function handleHarness(request, env, url, context = {}) {
         return json(result);
       }
       if(input.action==='publish'&&app.definition?.custom?.draftCommit)return json({message:'This draft is pinned to a GitHub commit. Publish it with its independent commit approval.'},409);
-      const result = await saveCustomRelease(env.DB, orgId, app, input, me);
+      const result = await saveCustomRelease(env.DB, orgId, app, input, me, { actorId: me });
       if (!result.error) await audit(env, request, { orgId, action: 'app.custom_' + input.action, actor: person(who.user), entity: { type: 'app', id: appId }, details: { version: result.version } });
       return result.error ? fail(result) : json(result);
     }
@@ -2234,7 +2234,7 @@ export async function handleHarness(request, env, url, context = {}) {
         // The shared definition is its maker's or an admin's to change, as
         // canCustomize says; everyone else keeps personal views of their own.
         if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change this app." }, 403);
-        const r = await updateApp(env.DB, orgId, appId, input, me);
+        const r = await updateApp(env.DB, orgId, appId, input, me, me);
         return r.error ? fail(r) : json(r);
       }
       if (request.method === "DELETE") {
@@ -2252,7 +2252,7 @@ export async function handleHarness(request, env, url, context = {}) {
       }
       if (request.method === "POST") {
         if (!(await mayChangeApp())) return json({ message: "Only its maker, an editor, or an admin can change this app." }, 403);
-        const r = await restoreVersion(env.DB, orgId, appId, input.version, me);
+        const r = await restoreVersion(env.DB, orgId, appId, input.version, me, me);
         return r.error ? fail(r) : json(r);
       }
     }

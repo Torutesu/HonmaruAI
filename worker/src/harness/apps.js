@@ -325,7 +325,7 @@ export async function createFromTemplate(db, { orgId, by, template, name, tableN
 
 /// A new version: change the name, the views, or the table's columns. The
 /// previous definition is kept, so a change can be undone.
-export async function updateApp(db, orgId, id, { name, tableName, description, icon, columns, definition, note, expectedVersion }, by) {
+export async function updateApp(db, orgId, id, { name, tableName, description, icon, columns, definition, note, expectedVersion }, by, actorId) {
   const app = await getApp(db, orgId, id);
   if (!app) return { error: "No such app.", status: 404 };
   if (expectedVersion !== undefined && expectedVersion !== app.version) return { error: "This app changed. Reload before saving.", status: 409 };
@@ -336,9 +336,9 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
   // app's new version below: a save that loses to another leaves both alone.
   let schema = null;
   if (columns !== undefined || tableName !== undefined) {
-    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, planned => ({ sql: `EXISTS (SELECT 1 FROM hx_apps WHERE id = ?9 AND org_id = ?5 AND version = ?10)
+    schema = await planTableUpdate(db, orgId, app.tableId, { name: tableName, columns }, planned => ({ sql: `EXISTS (SELECT 1 FROM hx_apps current WHERE current.id = ?9 AND current.org_id = ?5 AND current.version = ?10${actorId !== undefined ? ` AND current.deleted_at IS NULL AND EXISTS(SELECT 1 FROM memberships m WHERE m.org_id=current.org_id AND m.user_github_id=?12 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest' AND (current.created_by=?12 OR EXISTS(SELECT 1 FROM hx_app_person_access p WHERE p.org_id=current.org_id AND p.app_id=current.id AND p.user_github_id=?12 AND p.permission='edit') OR (NOT EXISTS(SELECT 1 FROM hx_app_person_access p WHERE p.org_id=current.org_id AND p.app_id=current.id AND p.user_github_id=?12) AND COALESCE((SELECT visibility FROM hx_app_access x WHERE x.org_id=current.org_id AND x.app_id=current.id),'workspace')='workspace' AND LOWER(TRIM(m.role)) IN ('owner','admin'))))` : ""})
       AND (?11='[]' OR NOT EXISTS (SELECT 1 FROM hx_personal_views p, json_each(p.settings,'$.views') v, json_each(?11) incoming
-        WHERE p.org_id=?5 AND p.app_id=?9 AND json_extract(v.value,'$.id')=incoming.value))`, binds: [id, app.version, JSON.stringify(introducedIds(normalizeDefinition(definition ?? app.definition,planned.columns)))] }));
+        WHERE p.org_id=?5 AND p.app_id=?9 AND json_extract(v.value,'$.id')=incoming.value))`, binds: [id, app.version, JSON.stringify(introducedIds(normalizeDefinition(definition ?? app.definition,planned.columns))), ...(actorId !== undefined ? [String(actorId)] : [])] }));
     if (schema.error) return schema;
     table = schema.table;
   }
@@ -363,12 +363,17 @@ export async function updateApp(db, orgId, id, { name, tableName, description, i
     ...(schema ? [schema.statement] : []),
     db.prepare(`UPDATE hx_apps SET name = ?1, description = ?2, icon = ?3, definition = ?4, version = ?5, updated_at = ?6 WHERE id = ?7 AND org_id = ?8 AND version = ?9${schema ? " AND changes() = 1" : ""}
       AND (?10='[]' OR NOT EXISTS (SELECT 1 FROM hx_personal_views p, json_each(p.settings,'$.views') v, json_each(?10) incoming
-        WHERE p.org_id=?8 AND p.app_id=?7 AND json_extract(v.value,'$.id')=incoming.value))`)
-      .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version, JSON.stringify(introducedPersonalIds)),
+        WHERE p.org_id=?8 AND p.app_id=?7 AND json_extract(v.value,'$.id')=incoming.value))
+      ${actorId !== undefined ? `AND EXISTS(SELECT 1 FROM hx_apps current JOIN memberships m ON m.org_id=current.org_id AND m.user_github_id=?11 AND LOWER(TRIM(COALESCE(m.role,'guest')))!='guest'
+        LEFT JOIN hx_app_access access ON access.org_id=current.org_id AND access.app_id=current.id
+        LEFT JOIN hx_app_person_access person ON person.org_id=current.org_id AND person.app_id=current.id AND person.user_github_id=?11
+        WHERE current.org_id=?8 AND current.id=?7 AND current.deleted_at IS NULL AND (current.created_by=?11 OR person.permission='edit'
+          OR (person.user_github_id IS NULL AND COALESCE(access.visibility,'workspace')='workspace' AND LOWER(TRIM(m.role)) IN ('owner','admin'))))` : ""}`)
+      .bind(next.name, next.description, next.icon, JSON.stringify(def), version, at, id, orgId, app.version, JSON.stringify(introducedPersonalIds), ...(actorId !== undefined ? [String(actorId)] : [])),
     db.prepare("INSERT INTO hx_app_versions (app_id, org_id, version, definition, note, created_by, created_at) SELECT ?1, ?7, ?2, ?3, ?4, ?5, ?6 WHERE changes() = 1")
       .bind(id, version, JSON.stringify({ name: next.name, tableName: table.name, columns: table.columns, ...def }), note ? String(note).slice(0, 200) : null, String(by), at, orgId),
   ]);
-  if (!results[schema ? 1 : 0].meta?.changes) return { error: "This app changed. Reload before saving.", status: 409 };
+  if (!results[schema ? 1 : 0].meta?.changes) return { error: actorId !== undefined ? "Your access or the app changed. Reload before saving." : "This app changed. Reload before saving.", status: 409 };
   return { app: await getApp(db, orgId, id) };
 }
 
@@ -467,11 +472,11 @@ export async function listVersions(db, orgId, id) {
 }
 
 /// Go back to an earlier version — as a new version, so nothing is lost.
-export async function restoreVersion(db, orgId, id, version, by) {
+export async function restoreVersion(db, orgId, id, version, by, actorId) {
   const row = await db.prepare("SELECT definition FROM hx_app_versions WHERE app_id = ?1 AND org_id = ?2 AND version = ?3").bind(id, orgId, Number(version)).first();
   if (!row) return { error: "No such version.", status: 404 };
   const old = parse(row.definition, {});
-  return updateApp(db, orgId, id, { name: old.name, tableName: old.tableName, columns: old.columns, definition: { views: old.views }, note: `Restored version ${version}` }, by);
+  return updateApp(db, orgId, id, { name: old.name, tableName: old.tableName, columns: old.columns, definition: { views: old.views }, note: `Restored version ${version}` }, by, actorId);
 }
 
 export async function deleteApp(db, orgId, id) {
