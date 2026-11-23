@@ -149,7 +149,7 @@ export class OrgRelay {
       }
       const controls=[],remaining=[];
       for(const item of queued){
-        if(String(item.userId)!==String(job.created_by) || !activeControllers.has(item.controllerId) ||
+        if(!activeControllers.has(item.controllerId) ||
             Number(item.expiresAt) <= at || !(await allowed(this.db,orgId,item.userId,'harness.build')) ||
             !(await mayUseConversation(this.db,orgId,item.userId,payload.browserContext?.channel)))continue;
         if(controls.length<5)controls.push({ action: item.action, controllerId: item.controllerId, expiresAt: item.expiresAt });else remaining.push(item);
@@ -175,7 +175,7 @@ export class OrgRelay {
       for (const ws of this.state.getWebSockets()) {
         if (ws.readyState !== 1) continue;
         const att = ws.deserializeAttachment() || {};
-        if (att.desktopJobId === job.id && att.desktopCanControl === true && String(att.githubId) === String(job.created_by) &&
+        if (att.desktopJobId === job.id && att.desktopCanControl === true &&
             att.desktopControlId === controllerId && Number(att.desktopControlUntil) >= expiresAt && Number(att.desktopControlUntil) > now &&
             await allowed(this.db, orgId, att.githubId, 'harness.build') &&
             await mayUseConversation(this.db, orgId, att.githubId, payload.browserContext?.channel)) {
@@ -676,7 +676,10 @@ export class OrgRelay {
         ws.send(JSON.stringify({ type: 'CUSTOM', name: 'browser_frame_unavailable', value: { jobId } }));
         return;
       }
-      const canControl=String(job.created_by)===String(att.githubId);
+      // A Live Desktop is shared with the current members of its source
+      // conversation. The per-socket lease below still admits only one
+      // controller at a time.
+      const canControl=true;
       ws.serializeAttachment({ ...att, desktopJobId: job.id, desktopCanControl: canControl,
         ...(att.desktopJobId === job.id && typeof att.desktopControlId === 'string'
           ? {} : { desktopControlId: canControl ? crypto.randomUUID() : null, desktopControlUntil: 0 }) });
@@ -691,7 +694,7 @@ export class OrgRelay {
       if(!action||!jobId||current.desktopJobId!==jobId||current.desktopCanControl!==true){ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;}
       const job=await this.db.prepare("SELECT id,created_by,payload FROM hx_gateway_jobs WHERE org_id=?1 AND id=?2 AND status='running'").bind(orgId,jobId).first();
       let jobPayload;try{jobPayload=job?JSON.parse(job.payload):null}catch{jobPayload=null}
-      if(!job||String(job.created_by)!==String(current.githubId)||jobPayload?.browserTools!==true||!(await allowed(this.db,orgId,current.githubId,'harness.build'))||!(await browserConversationAllowed(this.db,orgId,job.created_by,jobPayload.browserContext))||!(await mayUseConversation(this.db,orgId,current.githubId,jobPayload.browserContext?.channel))){
+      if(!job||jobPayload?.browserTools!==true||!(await allowed(this.db,orgId,current.githubId,'harness.build'))||!(await browserConversationAllowed(this.db,orgId,job.created_by,jobPayload.browserContext))||!(await mayUseConversation(this.db,orgId,current.githubId,jobPayload.browserContext?.channel))){
         ws.serializeAttachment({...current,desktopJobId:null,desktopCanControl:false});
         ws.send(JSON.stringify({type:'CUSTOM',name:'browser_control_rejected',value:{jobId}}));return;
       }
