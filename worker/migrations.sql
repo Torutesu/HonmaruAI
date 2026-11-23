@@ -699,3 +699,5 @@ CREATE TABLE IF NOT EXISTS hx_agent_app_connection_grants (org_id TEXT NOT NULL,
 CREATE INDEX IF NOT EXISTS idx_hx_agent_app_connection_grants_member ON hx_agent_app_connection_grants(org_id,user_github_id,agent_id);
 -- Fence an in-flight Agent API read against revoke-and-regrant of the same permission.
 ALTER TABLE hx_agent_app_connection_grants ADD COLUMN grant_id TEXT NOT NULL DEFAULT '';
+-- #KY-015: Smithery Agent grants belong to one membership generation; legacy rows fail closed until re-granted.
+ALTER TABLE hx_agent_app_grants ADD COLUMN membership_since TEXT;

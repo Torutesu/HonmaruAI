@@ -1653,6 +1653,7 @@ CREATE TABLE IF NOT EXISTS hx_agent_app_grants (
   org_id          TEXT NOT NULL,
   agent_id        TEXT NOT NULL,
   user_github_id  TEXT NOT NULL,
+  membership_since TEXT,
   server          TEXT NOT NULL,
   created_at      TEXT NOT NULL,
   PRIMARY KEY (org_id, agent_id, user_github_id, server)

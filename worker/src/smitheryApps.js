@@ -209,6 +209,7 @@ export async function agentAppConnections(db, { orgId, agentId, githubId }) {
       LEFT JOIN hx_agent_app_grants g
         ON g.org_id = c.org_id AND g.agent_id = ?3
        AND g.user_github_id = c.user_github_id AND g.server = c.server
+       AND g.membership_since = m.created_at
      WHERE c.org_id = ?1 AND c.user_github_id = ?2
        AND c.status = 'connected' AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
      ORDER BY a.name COLLATE NOCASE, c.server
@@ -231,17 +232,20 @@ export async function setAgentAppGrant(db, { orgId, agentId, githubId, server, g
     .bind(orgId, String(agentId), mutationId);
   if (granted) {
     const [changed] = await db.batch([db.prepare(`
-      INSERT OR IGNORE INTO hx_agent_app_grants (org_id, agent_id, user_github_id, server, created_at)
-      SELECT ?1, ?2, ?3, c.server, ?5 FROM app_connections c
+      INSERT INTO hx_agent_app_grants (org_id, agent_id, user_github_id, membership_since, server, created_at)
+      SELECT ?1, ?2, ?3, m.created_at, c.server, ?5 FROM app_connections c
         JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
         JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        WHERE c.org_id = ?1 AND c.user_github_id = ?3 AND c.server = ?4
          AND c.status = 'connected' AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
+      ON CONFLICT(org_id,agent_id,user_github_id,server) DO UPDATE SET
+        membership_since=excluded.membership_since, created_at=excluded.created_at
       RETURNING server`)
       .bind(orgId, String(agentId), String(githubId), name, new Date().toISOString()), bumpAccess]);
     if (!changed.results?.length) {
-      const alreadyGranted = await db.prepare(`SELECT 1 FROM hx_agent_app_grants
-        WHERE org_id = ?1 AND agent_id = ?2 AND user_github_id = ?3 AND server = ?4`)
+      const alreadyGranted = await db.prepare(`SELECT 1 FROM hx_agent_app_grants g
+        JOIN memberships m ON m.org_id=g.org_id AND m.user_github_id=g.user_github_id AND m.created_at=g.membership_since
+        WHERE g.org_id = ?1 AND g.agent_id = ?2 AND g.user_github_id = ?3 AND g.server = ?4`)
         .bind(orgId, String(agentId), String(githubId), name).first();
       if (!alreadyGranted) return { error: 'That connected app is not available to you.', status: 404 };
     }
@@ -267,7 +271,8 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
        JOIN org_apps a ON a.org_id = c.org_id AND a.server = c.server
        JOIN memberships m ON m.org_id = c.org_id AND m.user_github_id = c.user_github_id
        ${requireAgentGrant ? `JOIN hx_agent_app_grants g ON g.org_id = c.org_id AND g.agent_id = ?3
-          AND g.user_github_id = c.user_github_id AND g.server = c.server` : ''}
+          AND g.user_github_id = c.user_github_id AND g.server = c.server
+          AND g.membership_since = m.created_at` : ''}
       WHERE c.org_id = ?1 AND c.user_github_id = ?2 AND LOWER(TRIM(COALESCE(m.role,'member'))) != 'guest'
         ${requireAgentGrant ? `AND c.status = 'connected'` : ''}
       ORDER BY c.created_at LIMIT ?${requireAgentGrant ? '4' : '3'}`;
@@ -308,7 +313,7 @@ export async function appTools(env, { orgId, session, taint, writes = false, req
               JOIN org_apps a ON a.org_id=c.org_id AND a.server=c.server
               JOIN memberships m ON m.org_id=c.org_id AND m.user_github_id=c.user_github_id
               WHERE g.org_id=?1 AND g.agent_id=?2 AND g.user_github_id=?3 AND g.server=?4
-                AND c.id=?5 AND c.updated_at=?6 AND m.created_at=?7 AND g.created_at=?8
+                AND c.id=?5 AND c.updated_at=?6 AND m.created_at=?7 AND g.membership_since=m.created_at AND g.created_at=?8
                 AND LOWER(TRIM(COALESCE(m.role,'member')))!='guest'`)
               .bind(orgId, String(agentId), githubId, row.server, row.id, row.connectionUpdatedAt, row.membershipSince, row.grantCreatedAt)
               .first().catch(() => null);
