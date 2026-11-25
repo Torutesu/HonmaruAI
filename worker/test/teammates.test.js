@@ -3,10 +3,9 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { watchTeammateRuns } from "../src/channelRoutes.js";
+import { runAgents, watchTeammateRuns } from "../src/channelRoutes.js";
 import {drainAgentFallbackNotifications,recordAgentFallbackState} from '../src/harness/agentFallback.js';
-import {decideAgentFallbackApproval,requestAgentFallbackApproval} from '../src/harness/agentFallbackApprovals.js';
-import {loadTeammate} from '../src/teammates.js';
+import {decideAgentFallbackApproval} from '../src/harness/agentFallbackApprovals.js';
 import {resumeApprovedAgentFallback} from '../src/channelRoutes.js';
 
 // AI teammates, the way Claude Tag works in Slack: an admin sets Claude up
@@ -161,9 +160,14 @@ test('offline ACP fallback waits for an owner decision and only runs Workspace A
  const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'summarize the launch plan'});
  const source=(await sent.json()).message;
  const agent=await env.DB.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND owner_login='toru' AND provider='acp'").bind(ORG).first();
- const t=await loadTeammate(env.DB,ORG,'acp',env);
- const request=await requestAgentFallbackApproval(env,{orgId:ORG,agent,teammate:t,requester:{login:'toru',github_id:'9701',name:'Toru'},channel:'b:cafe',threadId:source.id,sourceMessageId:source.id,sourceBody:source.body,fallbackReason:'offline'});
- expect(request.approval.status).toBe('pending');
+ const {getUserByLogin}=await import('../src/db.js');
+ const {listMembers}=await import('../src/team.js');
+ const {resolveChannel}=await import('../src/channels.js');
+ const requester=await getUserByLogin(env.DB,'toru');
+ const members=await listMembers(env.DB,ORG,'9701');
+ const resolved=await resolveChannel(env.DB,ORG,requester,'b:cafe',members);
+ const sourceRow=await env.DB.prepare('SELECT * FROM channel_messages WHERE org_id=?1 AND id=?2').bind(ORG,source.id).first();
+ await runAgents({...env,OPENAI_API_KEY:'sk-existing-workspace'},{orgId:ORG,session:{github_id:'9701'},user:requester,resolved,row:sourceRow,members,locale:'en',agents:[agent]});
  const approvalCardRow=await env.DB.prepare("SELECT card_id,data FROM cards WHERE org_id=?1 AND recipient_user_id='toru' AND status='pending'").bind(ORG).first();
  expect(approvalCardRow).toBeTruthy();
  const approvalCard=JSON.parse(approvalCardRow.data);
