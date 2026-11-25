@@ -4882,3 +4882,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added human-session CLI commands to inspect/update assigned human roles, inspect/update managed Agent peer assignments, and transfer ownership to an existing active human Agent admin. Every mutation requires `--confirm` and the current `--version`; the existing Worker retains authorization, active-membership, visibility, role and compare-and-set enforcement. Output is reduced to role/identity metadata returned by the route.
 - Targeted CLI collaboration tests passed **4/4**; full CLI suite passed **95/95**. `node --check packages/cli/src/cli.js`, KY-085 inventory checker, and `git diff --check` passed. Exact-head CI, merge, post-merge deployments, and authenticated Kylon same-task comparison remain pending. No schema, paid service, or Simple-mode behavior change.
+
+### 2026-11-25 — KY-131 ACP fallback boundary regressions (candidate)
+
+- Added ACP tests proving session activity before prompt submission blocks fallback and a provider error after prompt submission does not resend the local prompt. Worker integration now checks that a post-prompt failure and an explicit owner opt-out make no Workspace AI request, settle the run as failed, and do not deliver a fallback answer.
+- The opt-out path exposed an optional `costCents` value being bound as `undefined`, which D1 rejects and could leave the run in `fallback_running`. Settlement now normalizes an absent cost to `null`. Focused Gateway ACP tests passed **11/11** and Worker teammates integration passed **41/41**. Full Worker suite, exact-head CI, deployment, connected-node acceptance, and Kylon comparison remain pending. No new provider/service or Simple-mode change.

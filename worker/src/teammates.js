@@ -1253,7 +1253,7 @@ export async function settleRun(db, run, read, now = new Date(), {deliveryAgentI
   // path until their own idempotency contract covers replay.
   const deliveryId=deliveryAgentId && !run.on_behalf_of?crypto.randomUUID():null;
   const update=db.prepare("UPDATE ai_teammate_runs SET status = ?2, last_event_at = COALESCE(?3, last_event_at), cost_cents = COALESCE(?4, cost_cents), result_delivery_id=?7, remote_turn=COALESCE(?8,remote_turn) WHERE id = ?1 AND status = ?9 AND org_id=?5 AND turn_version=?6")
-    .bind(run.id,status,read.last || null,read.costCents,run.org_id,run.turn_version ?? 0,deliveryId,read.remoteTurn || null,expectedStatus);
+    .bind(run.id,status,read.last || null,read.costCents ?? null,run.org_id,run.turn_version ?? 0,deliveryId,read.remoteTurn || null,expectedStatus);
   let out;
   if(deliveryId) {
     const snapshot={id:run.id,org_id:run.org_id,provider:run.provider,channel:run.channel,thread_id:run.thread_id,started_by:run.started_by || null,room_hook_source:run.room_hook_source || null,turn_version:run.turn_version ?? 0,assignment_id:run.assignment_id || null,assignment_generation:run.assignment_generation ?? null,assignment_agent_id:run.assignment_agent_id || null};
