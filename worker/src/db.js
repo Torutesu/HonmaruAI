@@ -762,6 +762,19 @@ export async function deleteConnectorConfig(db, githubId, connector) {
     .run();
 }
 
+// A native connector may disappear and return under the same account while an
+// Agent read is in flight. Advance the existing Agent-access generation for
+// every Agent that can use that member's grant/share in the affected source.
+function agentConnectionGenerationWrite(db, githubId, source) {
+  if (!['notion', 'github'].includes(source)) return null;
+  return db.prepare(`UPDATE hx_agent_access SET version=version+1,mutation_id=lower(hex(randomblob(16)))
+    WHERE EXISTS (SELECT 1 FROM hx_agent_source_grants g WHERE g.org_id=hx_agent_access.org_id
+      AND g.agent_id=hx_agent_access.agent_id AND g.user_github_id=?1 AND g.source=?2)
+    OR EXISTS (SELECT 1 FROM hx_agent_source_shares s WHERE s.org_id=hx_agent_access.org_id
+      AND s.agent_id=hx_agent_access.agent_id AND s.owner_github_id=?1 AND s.source=?2)`)
+    .bind(String(githubId), source);
+}
+
 /// Record which connectors Composio says this person has, so the cron can
 /// find them without asking Composio about everyone with a session.
 ///
@@ -776,13 +789,34 @@ export async function rememberConnections(db, githubId, connectorIds, activeIds)
   for (const id of connectorIds) {
     const existing = await getConnectorConfig(db, githubId, id);
     if (activeIds.has(id)) {
-      if (!existing?.connected) await setConnectorConfig(db, githubId, id, { ...(existing || {}), connected: true });
+      if (!existing?.connected) {
+        const config = { ...(existing || {}), connected: true };
+        const stamp = new Date().toISOString();
+        const writes = [db.prepare(`INSERT INTO connector_config (user_github_id,connector,config,updated_at)
+          VALUES (?1,?2,?3,?4) ON CONFLICT(user_github_id,connector) DO UPDATE SET
+          config=excluded.config,updated_at=excluded.updated_at`).bind(String(githubId), id, JSON.stringify(config), stamp)];
+        const generation = agentConnectionGenerationWrite(db, githubId, id);
+        if (generation) writes.push(generation);
+        await db.batch(writes);
+      }
       continue;
     }
     if (!existing) continue;
     const { connected, ...rest } = existing;
-    if (Object.keys(rest).length === 0) await deleteConnectorConfig(db, githubId, id);
-    else if (connected) await setConnectorConfig(db, githubId, id, rest);
+    if (Object.keys(rest).length === 0) {
+      const writes = [db.prepare("DELETE FROM connector_config WHERE user_github_id=?1 AND connector=?2").bind(String(githubId), id)];
+      const generation = agentConnectionGenerationWrite(db, githubId, id);
+      if (generation) writes.push(generation);
+      await db.batch(writes);
+    } else if (connected) {
+      const stamp = new Date().toISOString();
+      const writes = [db.prepare(`INSERT INTO connector_config (user_github_id,connector,config,updated_at)
+        VALUES (?1,?2,?3,?4) ON CONFLICT(user_github_id,connector) DO UPDATE SET
+        config=excluded.config,updated_at=excluded.updated_at`).bind(String(githubId), id, JSON.stringify(rest), stamp)];
+      const generation = agentConnectionGenerationWrite(db, githubId, id);
+      if (generation) writes.push(generation);
+      await db.batch(writes);
+    }
   }
 }
 

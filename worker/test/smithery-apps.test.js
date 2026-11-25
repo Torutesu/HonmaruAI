@@ -5,7 +5,7 @@ import worker from "../src/index.js";
 import { agentAppConnections, appTools, readsOnly, sweepAppConnections, tagsFor } from "../src/smitheryApps.js";
 import { agentTools } from "../src/agentTools.js";
 import { forgetPolicies } from "../src/policy.js";
-import { sessionKey } from "../src/db.js";
+import { rememberConnections, sessionKey } from "../src/db.js";
 
 // Apps through Smithery Connect (docs/smithery-apps.md). The pretend
 // Smithery below enforces what the real one promises for a scoped token: it
@@ -516,6 +516,57 @@ test("Harness native Notion access needs an agent grant and discards a result re
     await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "simple" } });
     const simple = await agentTools(apiEnv(), { orgId: ORG, session, personal: true });
     expect(simple.search_notion).toBeDefined();
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("Harness native Notion discards a result when the same connector is disconnected and reconnected in flight", async () => {
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-native-notion-reconnect";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'notion-reconnect','Notion Reconnect','Read only while authorized.','team','mika',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare("INSERT INTO connector_sync_state (user_github_id,synced_at,org_id) VALUES ('9702',?1,?2)")
+    .bind(createdAt, ORG).run();
+  await env.DB.prepare("INSERT INTO connector_config (user_github_id,connector,config,updated_at) VALUES ('9702','notion',?1,?2)")
+    .bind(JSON.stringify({ connected: true }), createdAt).run();
+  const path = `/hx/agents/${agentId}/apps`;
+  const granted = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "notion" } });
+  expect(granted.status).toBe(200);
+  const session = await sessionOf(mika);
+  const taint = { value: false };
+  const tools = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId, taint });
+
+  let finishSearch;
+  let signalSearchStarted;
+  const searchStarted = new Promise(resolve => { signalSearchStarted = resolve; });
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.origin === "https://backend.composio.dev") {
+      signalSearchStarted();
+      return await new Promise(resolve => {
+        finishSearch = () => resolve(Response.json({ results: [{ response: { data: { results: [{
+          properties: { Title: { type: "title", title: [{ plain_text: "REVOKED-CONNECTOR-SECRET" }] } },
+          url: "https://notion.so/revoked-connector-secret",
+        }] } } }] }));
+      });
+    }
+    return real(input, init);
+  };
+  try {
+    const search = tools.search_notion.run({ query: "secret" });
+    await searchStarted;
+    await rememberConnections(env.DB, "9702", ["notion"], new Set());
+    await rememberConnections(env.DB, "9702", ["notion"], new Set(["notion"]));
+    finishSearch();
+    const result = await search;
+    expect(result).toContain("Notion access changed while the request was running");
+    expect(result).not.toContain("REVOKED-CONNECTOR-SECRET");
+    expect(taint.value).toBe(false);
   } finally {
     globalThis.fetch = real;
   }
