@@ -2,6 +2,21 @@
    own rows and pills; what is new is the app canvas: tiles, a table, a
    board, metric tiles, and the workflow builder. */
 
+/* The original Harness components use the shared marble tokens. Map those
+   roles to the Harness palette so old and new panels stay coherent in dark
+   mode without changing the Simple workspace palette. */
+.hx-screen {
+  --signal-white: var(--hx-surface, #fff);
+  --ink-black: var(--hx-text, #242722);
+  --bone: var(--hx-border, #dddfd7);
+  --mist: var(--hx-hover, #f4f5f1);
+  --ash: var(--hx-muted, #62695c);
+  --border: var(--hx-border, #dddfd7);
+  --muted: var(--hx-muted, #62695c);
+  --ink: var(--hx-text, #242722);
+  --danger: var(--hx-danger, #a11258);
+}
+
 .hx-screen .screen-head { position: relative; }
 /* A nested view keeps its way back where the rail hides the others'. */
 .shell .screen-head .back.hx-back { display: inline-flex; align-items: center; justify-content: center; }
@@ -65,7 +80,7 @@
 .hx-metric-label { font-size: 12px; color: var(--ash); }
 
 .hx-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--mist); border-radius: var(--radius-pill); padding: 2px 4px 2px 10px; margin: 0 6px 6px 0; font-size: 13px; }
-.hx-danger { color: #a11258; }
+.hx-danger { color: var(--hx-danger, #a11258); }
 .hx-emoji { font-size: 18px; }
 .hx-off { color: var(--ash); font-weight: 400; }
 
@@ -149,7 +164,7 @@
 .hx-run-filter { display: inline-flex; align-items: center; gap: 7px; color: var(--hx-muted, var(--ash)); font-size: 12px; }
 .hx-run-filter select { max-width: min(220px, 62vw); border: 1px solid var(--hx-border, var(--bone)); border-radius: 999px; padding: 6px 28px 6px 10px; color: var(--hx-text, var(--ink)); background: var(--hx-surface, var(--signal-white)); font: inherit; }
 .hx-run-filter select:focus-visible { outline: 2px solid var(--hx-accent, var(--brand-violet)); outline-offset: 2px; }
-.hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, #d14343 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, #d14343 8%, var(--hx-surface, var(--signal-white))); }
+.hx-run-filter[aria-pressed="true"] { border-color: color-mix(in srgb, var(--hx-danger, #c04444) 48%, var(--hx-border, var(--bone))); color: var(--hx-danger, #c04444); background: color-mix(in srgb, var(--hx-danger, #c04444) 8%, var(--hx-surface, var(--signal-white))); }
 .hx-run-filter:focus-visible,
 .hx-run-history-panel > button:focus-visible,
 .hx-run-history-panel > summary:focus-visible { outline: 2px solid var(--hx-accent, var(--brand-violet)); outline-offset: 2px; }
