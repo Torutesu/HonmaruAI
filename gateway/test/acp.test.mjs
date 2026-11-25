@@ -119,11 +119,23 @@ test('ACP recognizes provider quota and rate limit variants before prompt but re
 
 test('ACP does not retry or fall back when an explicit provider error arrives after prompt submission', async () => {
   const { execPath } = await import('node:process');
-  const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'active'}});else if(m.method==='session/prompt')s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'Usage limit reached'}})});`;
+  directory = await mkdtemp(join(tmpdir(), 'honmaru-acp-after-prompt-'));
+  const marker = join(directory, 'prompts');
+  const script = `const fs=require('node:fs'),r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new')s({jsonrpc:'2.0',id:m.id,result:{sessionId:'active'}});else if(m.method==='session/prompt'){fs.appendFileSync(${JSON.stringify(marker)},'x');s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'Usage limit reached'}})}});`;
   const result = runAcp({ acp: true, agentKey: 'fixture', prompt: 'Summarize this repository' }, {
-    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: process.cwd() } }, timeoutMs: 5000,
+    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: directory } }, timeoutMs: 5000,
   });
   await assert.rejects(result, /ACP request failed/);
+  assert.equal((await readFile(marker, 'utf8')).length, 1, 'a submitted local prompt must never be replayed');
+});
+
+test('ACP does not offer Workspace fallback after session activity before prompt submission', async () => {
+  const { execPath } = await import('node:process');
+  const script = `const r=require('node:readline').createInterface({input:process.stdin}),s=x=>process.stdout.write(JSON.stringify(x)+'\\n');r.on('line',l=>{const m=JSON.parse(l);if(m.method==='initialize')s({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{}}});else if(m.method==='session/new'){s({jsonrpc:'2.0',method:'session/update',params:{sessionId:'active',update:{sessionUpdate:'tool_call',toolCallId:'local-1',title:'Local setup'}}});s({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'Authentication required'}})}else if(m.method==='session/prompt')process.exit(9)});`;
+  await assert.rejects(runAcp({ acp: true, agentKey: 'fixture', prompt: 'Review this repository' }, {
+    timeoutMs: 5000,
+    acpAgents: { fixture: { command: execPath, args: ['-e', script], cwd: process.cwd() } },
+  }), /ACP request failed/);
 });
 
 test('ACP terminal auth advertisement alone does not block an already authenticated session', async () => {

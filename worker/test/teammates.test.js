@@ -247,6 +247,38 @@ test.each(['signed_out','runtime_unavailable','provider_limited'])('a local ACP 
  expect(repliesAgain).toHaveLength(replies.length);
 });
 
+test.each([
+ ['a failure after the local prompt was submitted', true, null],
+ ['the owner disabled fallback', false, 'signed_out'],
+])('%s does not start a second Workspace AI execution',async(_label,fallbackEnabled,fallbackReason)=>{
+ const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway,token}=await registered.json();
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackToWorkspaceAI:fallbackEnabled});
+ expect(configured.status).toBe(200);
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'@acp-agent summarize the launch plan'},{TEAMMATE_WATCH_MS:'0'});
+ expect(sent.status).toBe(201);
+ const source=(await sent.json()).message;
+ const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
+ const claimed=await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ const localJob=(await claimed.json()).job;
+ const failed={lease:localJob.lease,status:'failed',stdout:'',stderr:fallbackReason?'sign-in required':'ACP request failed after prompt submission',exitCode:1,...(fallbackReason?{fallbackReason}:{})};
+ const finished=await worker.fetch(new Request(`https://example.com/gateways/jobs/${localJob.id}/finish`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(failed)}),env,ctx);
+ expect(finished.status).toBe(200);
+
+ const originalFetch=globalThis.fetch;let workspaceRequests=0;
+ globalThis.fetch=async(...args)=>{if(String(args[0]).startsWith('https://api.openai.com/'))workspaceRequests+=1;return originalFetch(...args);};
+ try { await watchTeammateRuns({...env,OPENAI_API_KEY:'sk-existing-workspace'},{ids:[run.id],deadline:Date.now()+1000}); }
+ finally { globalThis.fetch=originalFetch; }
+
+ expect(workspaceRequests).toBe(0);
+ expect(await env.DB.prepare('SELECT status FROM ai_teammate_runs WHERE id=?1').bind(run.id).first()).toEqual({status:'failed'});
+ const agentId=(await env.DB.prepare("SELECT agent_id FROM ai_teammates WHERE org_id=?1 AND provider='acp'").bind(ORG).first()).agent_id;
+ expect(await env.DB.prepare('SELECT current_state FROM hx_agent_fallback_state WHERE org_id=?1 AND agent_id=?2').bind(ORG,agentId).first()).toEqual(fallbackEnabled?{current_state:'node'}:null);
+ expect((await thread(toru,source.id)).map(reply=>reply.body).join('\n')).not.toContain('Completed with the existing Workspace model.');
+});
+
 test('Grok Bot routine returns a thread task through the one-time completion MCP tool', async () => {
   const dataKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
   const pool = fetchMock.get('https://routine.example.com');
