@@ -2,9 +2,10 @@ import { execFile, spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 const gatewayEntry = fileURLToPath(new URL("../../../gateway/cli.mjs", import.meta.url));
+const gatewayInstaller = fileURLToPath(new URL("../../../gateway/install-service.mjs", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const SERVICE_LABEL = "com.honmaru.gateway";
 
@@ -82,6 +83,31 @@ export function runGatewayForeground({ env = process.env, spawnProcess = spawn, 
     }
 
     child.once("error", () => reject(new Error("Could not start the local gateway process.")));
+    child.once("close", (code, signal) => resolve(code ?? (signal === "SIGINT" ? 130 : 1)));
+  });
+}
+
+export function installGatewayService({ configPath, confirmed = false, platform = process.platform, env = process.env, spawnProcess = spawn, executable = process.execPath } = {}) {
+  if (platform !== "darwin") throw new Error("Gateway LaunchAgent installation is available only on macOS.");
+  if (!confirmed) throw new Error("Pass --confirm after reviewing the gateway configuration and service replacement.");
+  if (typeof configPath !== "string" || !isAbsolute(configPath) || /[\u0000-\u001f\u007f]/.test(configPath)) {
+    throw new Error("Pass --config with an absolute path to the gateway configuration file.");
+  }
+
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawnProcess(executable, [gatewayInstaller, configPath], {
+        cwd: repositoryRoot,
+        env,
+        stdio: "inherit",
+      });
+    } catch {
+      reject(new Error("Could not install the local gateway service."));
+      return;
+    }
+
+    child.once("error", () => reject(new Error("Could not install the local gateway service.")));
     child.once("close", (code, signal) => resolve(code ?? (signal === "SIGINT" ? 130 : 1)));
   });
 }

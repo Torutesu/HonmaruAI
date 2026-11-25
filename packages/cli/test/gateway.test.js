@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { formatGatewayStatus, getGatewayStatus, runGatewayForeground } from "../src/gateway.js";
+import { formatGatewayStatus, getGatewayStatus, installGatewayService, runGatewayForeground } from "../src/gateway.js";
 
 const token = `hgw_${"a".repeat(72)}`;
 
@@ -42,6 +42,40 @@ test("foreground gateway reports Ctrl+C as a conventional interrupted exit", asy
     spawnProcess: () => { queueMicrotask(() => child.emit("close", null, "SIGINT")); return child; },
   });
   assert.equal(await result, 130);
+});
+
+test("gateway service install delegates the reviewed absolute config to the macOS installer", async () => {
+  const child = new EventEmitter();
+  let observed;
+  const result = installGatewayService({
+    configPath: "/Users/alice/.config/honmaru/service.json",
+    confirmed: true,
+    platform: "darwin",
+    env: { PATH: "/usr/bin" },
+    executable: "/usr/bin/node",
+    spawnProcess: (executable, args, options) => {
+      observed = { executable, args, options };
+      queueMicrotask(() => child.emit("close", 0, null));
+      return child;
+    },
+  });
+
+  assert.equal(await result, 0);
+  assert.equal(observed.executable, "/usr/bin/node");
+  assert.match(observed.args[0], /\/gateway\/install-service\.mjs$/);
+  assert.deepEqual(observed.args.slice(1), ["/Users/alice/.config/honmaru/service.json"]);
+  assert.equal(observed.options.stdio, "inherit");
+  assert.deepEqual(observed.options.env, { PATH: "/usr/bin" });
+  assert.equal(observed.args.join(" ").includes(token), false);
+});
+
+test("gateway service install fails closed without confirmation, absolute config or macOS", () => {
+  let spawns = 0;
+  const spawnProcess = () => { spawns += 1; throw new Error("must not start"); };
+  assert.throws(() => installGatewayService({ configPath: "/tmp/service.json", platform: "darwin", spawnProcess }), /--confirm/);
+  assert.throws(() => installGatewayService({ configPath: "service.json", confirmed: true, platform: "darwin", spawnProcess }), /absolute path/);
+  assert.throws(() => installGatewayService({ configPath: "/tmp/service.json", confirmed: true, platform: "linux", spawnProcess }), /only on macOS/);
+  assert.equal(spawns, 0);
 });
 
 test("gateway status reports an installed running LaunchAgent without exposing config or credentials", async () => {
