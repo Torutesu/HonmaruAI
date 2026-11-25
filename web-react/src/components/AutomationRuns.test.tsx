@@ -20,6 +20,18 @@ test('execution history shows a structured effect receipt without copying payloa
  expect(text).toContain(t('Effect receipt'));expect(text).toContain(t('External action'));expect(text).toContain(t('Conversation'));expect(text).toContain(t('Completed'));expect(text).toContain('Private message body')
  act(()=>tree.unmount())
 })
+test('execution history shows body-free receipts for ordered external Workflow writes',async()=>{
+ const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-external-writes',startedAt:'2026-10-24T00:00:00Z',status:'failed',log:[{step:1,type:'code',status:'failed',error:'External request did not complete.',externalWrites:[{appId:'app-private',name:'billing_api',method:'POST',operationId:'create-invoice',status:'sent'},{appId:'app-private',name:'billing_api',method:'POST',operationId:'send-invoice',status:'unknown'},{appId:'app-private',name:'billing_api',method:'POST',operationId:'notify-customer',status:'not_sent'}]}]}]});let tree:any
+ act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})
+ await act(async()=>refresh(tree).props.onClick())
+ const text=JSON.stringify(tree.toJSON())
+ expect(text).toContain(t('External write receipts'))
+ expect(text).toContain('create-invoice');expect(text).toContain('send-invoice');expect(text).toContain('notify-customer')
+ expect(text).toContain(t('Sent'));expect(text).toContain(t('Outcome unknown'));expect(text).toContain(t('Not sent'))
+ expect(text).toContain(t('Request bodies and credentials are not retained in these receipts.'))
+ expect(text).not.toContain('app-private');expect(text).not.toContain('private-body');expect(text).not.toContain('access_token')
+ act(()=>tree.unmount())
+})
 test('execution history exposes only the sanitized input template in a collapsed details section',async()=>{
  const workflow=vi.fn().mockResolvedValue({runs:[{id:'run-input',startedAt:'2026-10-24T00:00:00Z',status:'done',log:[{step:1,type:'post',status:'ok',inputPreview:{mode:'template',input:{text:'Hello {{input.customer}}'},note:'Runtime record, message, and connection values are not retained.'}}]}]});let tree:any
  act(()=>{tree=create(<AutomationRuns workflowId="wf" api={{workflow}as any}/>)})

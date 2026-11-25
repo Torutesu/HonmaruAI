@@ -462,29 +462,103 @@ test('Workflow App connection writes are staged for owner approval and never dis
 
 test('a staged App write waits for its owner and is sent once only after approval',async()=>{
  const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
- const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-41',body:{title:'Approved issue'}};
- const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:[request]});
+ const requests=[{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-41',body:{title:'Approved issue'}},{appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'issue-42',body:{title:'Second approved issue'}}];
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:requests});
  expect(finished.status).toBe(200);
  const result=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
  expect(result.status).toBe('waiting');expect(result.card_id).toEqual(expect.any(String));
  const saved=await env.DB.prepare("SELECT recipient_user_id,data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(result.card_id).first();
  const card=JSON.parse(saved.data);
  expect(saved.recipient_user_id).toBe('program-owner');
- expect(card.workflowApproval).toMatchObject({runId:'program-run',workflowId:'program-wf',codeWrite:{jobId:job.id,appId:'connection-app',name:'github_issues',method:'POST',operationId:'issue-41',body:{title:'Approved issue'}}});
+ expect(card.workflowApproval).toMatchObject({runId:'program-run',workflowId:'program-wf',codeWrite:{jobId:job.id,appId:'connection-app',name:'github_issues',method:'POST',writes:requests}});
+ expect(card.context).toContain('Second approved issue');
  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
  const fetch=vi.fn(async(_url,init)=>{
-  expect(init.method).toBe('POST');expect(JSON.parse(init.body)).toEqual({title:'Approved issue'});
-  return new Response(JSON.stringify({number:41}),{headers:{'content-type':'application/json'}});
+  expect(init.method).toBe('POST');
+  const body=JSON.parse(init.body);
+  expect(['Approved issue','Second approved issue']).toContain(body.title);
+  return new Response(JSON.stringify({number:body.title==='Approved issue'?41:42}),{headers:{'content-type':'application/json'}});
  });vi.stubGlobal('fetch',fetch);
  try{
   const approved={...card,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
   await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),result.card_id).run();
   const [settled,redelivery]=await Promise.all([settleWorkflowApproval(env,'program-org',approved),settleWorkflowProgram(env.DB,job.id)]);
-  expect(settled.status).toBe('done');expect(redelivery.status).toBe('awaiting-approval-settlement');expect(fetch).toHaveBeenCalledTimes(1);
-  expect((await env.DB.prepare("SELECT status FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app'").first()).status).toBe('succeeded');
+  expect(settled.status).toBe('done');expect(redelivery.status).toBe('awaiting-approval-settlement');expect(fetch).toHaveBeenCalledTimes(2);
+  expect(settled.log[0].externalWrites).toEqual(requests.map(({appId,name,method,operationId})=>({appId,name,method,operationId,status:'sent'})));
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app' AND status='succeeded'").first()).n).toBe(2);
   expect(await settleWorkflowApproval(env,'program-org',approved)).toBeNull();
-  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledTimes(2);
  }finally{vi.unstubAllGlobals()}
+});
+
+test('a pending single-write approval from before batch rollout remains executable',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const request={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:'legacy-issue-41',body:{title:'Legacy approved issue'}};
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:[request]});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ const saved=await env.DB.prepare("SELECT data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(run.card_id).first();
+ const card=JSON.parse(saved.data),legacyCard={...card,workflowApproval:{...card.workflowApproval,codeWrite:{jobId:job.id,...request}}};
+ await env.DB.prepare("UPDATE cards SET data=?1 WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(legacyCard),run.card_id).run();
+ const fetch=vi.fn(async()=>new Response('{}',{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ try{
+  const approved={...legacyCard,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
+  await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),run.card_id).run();
+  const settled=await settleWorkflowApproval(env,'program-org',approved);
+  expect(settled.status).toBe('done');expect(fetch).toHaveBeenCalledTimes(1);
+  expect(settled.log[0].externalWrites).toEqual([{appId:request.appId,name:request.name,method:request.method,operationId:request.operationId,status:'sent'}]);
+ }finally{vi.unstubAllGlobals()}
+});
+
+test('a failed write in an approved App batch records the uncertain tail and never replays it',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const requests=['one','two','three'].map((title,index)=>({appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',operationId:`issue-${index+1}`,body:{title}}));
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'Program result',stderr:'',exitCode:0,messages:[],connectionWrites:requests});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status,card_id FROM hx_workflow_runs WHERE id='program-run'").first();
+ const saved=await env.DB.prepare("SELECT data FROM cards WHERE org_id='program-org' AND card_id=?1").bind(run.card_id).first();
+ const card=JSON.parse(saved.data),fetch=vi.fn(async(_url,init)=>{
+  const body=JSON.parse(init.body);
+  if(body.title==='two')throw Error('provider response was lost');
+  return new Response('{}',{headers:{'content-type':'application/json'}});
+ });
+ vi.stubGlobal('fetch',fetch);
+ try{
+  const approved={...card,status:'approved',decision:{action:'approve',actorUserID:'program-owner',decidedAt:new Date().toISOString()}};
+  await env.DB.prepare("UPDATE cards SET data=?1,status='approved' WHERE org_id='program-org' AND card_id=?2").bind(JSON.stringify(approved),run.card_id).run();
+  const settled=await settleWorkflowApproval(env,'program-org',approved);
+  expect(settled.status).toBe('failed');
+  expect(settled.log[0].externalWrites).toEqual([
+   {appId:'connection-app',name:'github_issues',method:'POST',operationId:'issue-1',status:'sent'},
+   {appId:'connection-app',name:'github_issues',method:'POST',operationId:'issue-2',status:'unknown'},
+   {appId:'connection-app',name:'github_issues',method:'POST',operationId:'issue-3',status:'not_sent'},
+  ]);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await settleWorkflowApproval(env,'program-org',approved);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org' AND app_id='connection-app' AND status='succeeded'").first()).n).toBe(1);
+ }finally{vi.unstubAllGlobals()}
+});
+
+test('the Worker rejects duplicate operation IDs and batches that mix App connections',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const base={appId:'connection-app',name:'github_issues',ownerId:'program-owner',version:1,method:'POST',body:{title:'x'}};
+ const duplicate=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{...base,operationId:'same'},{...base,operationId:'same'}]});
+ expect(duplicate.status).toBe(400);
+ const mixed=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'',stderr:'',exitCode:0,connectionWrites:[{...base,operationId:'one'},{...base,name:'other_connection',operationId:'two'}]});
+ expect(mixed.status).toBe(400);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id='program-org'").first()).n).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
+});
+
+test('an empty staged App-write batch settles as a no-op',async()=>{
+ const {job,api}=await setupProgramConnectionSource({method:'POST',write:true});
+ const finished=await api(`/jobs/${job.id}/finish`,{lease:job.lease,status:'succeeded',stdout:'No writes requested',stderr:'',exitCode:0,messages:[],connectionWrites:[]});
+ expect(finished.status).toBe(200);
+ const run=await env.DB.prepare("SELECT status FROM hx_workflow_runs WHERE id='program-run'").first();
+ expect(run.status).toBe('done');
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE org_id='program-org'").first()).n).toBe(0);
+ expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM hx_app_connection_requests WHERE org_id='program-org'").first()).n).toBe(0);
 });
 
 test('declining an external App write ends the run without dispatching or applying it',async()=>{

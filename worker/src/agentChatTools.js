@@ -104,14 +104,29 @@ export async function chatTools({provider, instructions, input, tools, authorize
     if (rounds > 1 && onRound) await Promise.resolve(onRound(rounds)).catch(() => {});
     if (!await permitted()) return done({cancelled: true});
     if (Date.now() >= deadline) return done();
+    let response;
     let data;
     try {
-      const response = await (provider.request || fetch)(provider.endpoint, {method: 'POST', headers,
-        body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: maxOutputTokens}),
-        signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
-      if (!response.ok) return signal?.aborted?done({cancelled:true}):done({refused: !called, status: response.status});
-      data = await response.json();
-    } catch { return signal?.aborted?done({cancelled:true}):done(); }
+      const operation = Promise.resolve().then(async () => {
+        response = await (provider.request || fetch)(provider.endpoint, {method: 'POST', headers,
+          body: JSON.stringify({model: provider.model, messages, tools: definitions, tool_choice: finalOnly ? 'none' : 'auto', max_tokens: maxOutputTokens}),
+          signal: signal ? AbortSignal.any([signal,AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))]) : AbortSignal.timeout(Math.max(1, Math.min(150000, deadline - Date.now())))});
+        if (signal?.aborted) {
+          try { await response.body?.cancel(); } catch { /* the response may already be closed */ }
+          return {response, cancelled: true};
+        }
+        return {response, data: response.ok ? await response.json() : null};
+      });
+      trackAgentOperation(signal, operation);
+      ({response, data} = await operation);
+    } catch {
+      // A successful response means the model call happened even when its
+      // body fails while cancellation is draining the operation.
+      if (response?.ok) called = true;
+      return signal?.aborted?done({cancelled:true}):done();
+    }
+    if (signal?.aborted) return done({called: true, cancelled: true});
+    if (!response.ok) return done({refused: !called, status: response.status});
     called = true;
     noteUsage(provider, 'agent', data, usageContext);
     if (!await permitted()) return done({cancelled: true});
