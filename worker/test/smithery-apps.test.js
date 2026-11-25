@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
 import { agentAppConnections, appTools, readsOnly, sweepAppConnections, tagsFor } from "../src/smitheryApps.js";
@@ -518,6 +518,67 @@ test("Harness native Notion access needs an agent grant and discards a result re
     expect(simple.search_notion).toBeDefined();
   } finally {
     globalThis.fetch = real;
+  }
+});
+
+test("Harness native GitHub drops a search result when its Agent grant is revoked and regranted in flight", async () => {
+  await call("/orgs/mode", owner, { method: "PUT", body: { orgId: ORG, mode: "harness" } });
+  const agentId = "agent-native-github-revoke";
+  const createdAt = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO custom_agents
+    (org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at)
+    VALUES (?1,?2,'github-reader','GitHub Reader','Read explicitly granted sources.','team','mika',?3,?3)`)
+    .bind(ORG, agentId, createdAt).run();
+  await env.DB.prepare("INSERT INTO org_github (org_id,repo,token,connected_by,updated_at) VALUES (?1,'acme/honmaru','WORKSPACE_GITHUB_TOKEN','9701',?2)")
+    .bind(ORG, createdAt).run();
+
+  const path = `/hx/agents/${agentId}/apps`;
+  const grant = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "github" } });
+  expect(grant.status, await grant.clone().text()).toBe(200);
+  const { getSession } = await import("../src/db.js");
+  const session = await getSession(env.DB, mika);
+  const tools = await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId });
+  expect(tools.search_github).toBeDefined();
+
+  let finishSearch;
+  let signalSearchStarted;
+  const searchStarted = new Promise(resolve => { signalSearchStarted = resolve; });
+  vi.stubGlobal("fetch", async (input, init) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (url.origin === "https://api.github.com" && url.pathname === "/search/issues") {
+      expect(init.headers.authorization).toBe("Bearer b");
+      signalSearchStarted();
+      return await new Promise(resolve => {
+        finishSearch = () => resolve(Response.json({ items: [{
+          number: 84,
+          title: "Private payroll incident",
+          html_url: "https://github.com/acme/honmaru/issues/84",
+          repository_url: "https://api.github.com/repos/acme/honmaru",
+          state: "open",
+          user: { login: "mika" },
+          updated_at: createdAt,
+        }] }));
+      });
+    }
+    return realFetch(input, init);
+  });
+  try {
+    const search = tools.search_github.run({ query: "payroll" });
+    const started = await Promise.race([searchStarted.then(() => true), search.then(output => ({ early: output }))]);
+    expect(started).toBe(true);
+    const revoked = await call(`${path}?${q}&source=github`, mika, { method: "DELETE" });
+    expect(revoked.status).toBe(200);
+    const restored = await call(path, mika, { method: "POST", body: { orgId: ORG, source: "github" } });
+    expect(restored.status, await restored.clone().text()).toBe(200);
+    finishSearch();
+
+    const output = await search;
+    expect(output).toContain("GitHub access changed while the request was running");
+    expect(output).not.toContain("Private payroll incident");
+    expect(output).not.toContain("github.com/acme/honmaru/issues/84");
+    expect((await agentTools(apiEnv(), { orgId: ORG, session, personal: true, agentId })).search_github).toBeDefined();
+  } finally {
+    vi.unstubAllGlobals();
   }
 });
 
