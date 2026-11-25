@@ -4494,8 +4494,17 @@ export const ClassicList: React.FC<Props> = ({
           {note && <span className="slk-note">“{note}”</span>}
         </div>
         <div className="slk-actions">
-          {(isUnread(c) || (Boolean(c.agentWakeApproval) && c.status === 'pending')) && (awaitsPost(c) ? (
+          {(isUnread(c) || (Boolean(c.agentWakeApproval || c.agentFallbackApproval) && c.status === 'pending')) && (awaitsPost(c) ? (
             <button className="slk-action primary" onClick={() => openCard(c.id)}>{t('Review and post')}</button>
+          ) : c.agentFallbackApproval ? (
+            <>
+              <button className="slk-action primary" onClick={() => onDecide(c.id, 'approve', { optionId: 'once' })}>{t('Allow this message')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'two_hours' })}>{t('Allow for two hours')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'today' })}>{t('Allow until today ends')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'approve', { optionId: 'always' })}>{t('Always allow')}</button>
+              <button className="slk-action" onClick={() => onDecide(c.id, 'decline', { optionId: 'computer' })}>{t('Try local computer')}</button>
+              <button className="slk-action danger" onClick={() => onDecide(c.id, 'decline')}>{t('Decline')}</button>
+            </>
           ) : c.agentWakeApproval ? (
             <>
               <button className="slk-action primary" onClick={() => onDecide(c.id, 'approve', { optionId: 'ten_minutes' })}>{t('Allow for 10 min')}</button>

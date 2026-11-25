@@ -3,8 +3,10 @@ import { fetchMock } from "./helpers/fetch-mock.js";
 import { beforeEach, afterEach, expect, test } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "../src/index.js";
-import { watchTeammateRuns } from "../src/channelRoutes.js";
+import { runAgents, watchTeammateRuns } from "../src/channelRoutes.js";
 import {drainAgentFallbackNotifications,recordAgentFallbackState} from '../src/harness/agentFallback.js';
+import {decideAgentFallbackApproval} from '../src/harness/agentFallbackApprovals.js';
+import {resumeApprovedAgentFallback} from '../src/channelRoutes.js';
 
 // AI teammates, the way Claude Tag works in Slack: an admin sets Claude up
 // with a key from an account made for it, tools' keys go to Anthropic's vault,
@@ -91,7 +93,7 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
  expect(configured.status).toBe(200);
  const teammate=(await configured.json()).teammate;
- expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackToWorkspaceAI:true});
+ expect(teammate).toMatchObject({provider:'acp',enabled:true,ready:true,hasKey:true,gatewayId:gateway.id,agentKey:'codex-local',unit:'task',workspaceTools:false,fallbackPolicy:'ask',fallbackToWorkspaceAI:false});
  expect(JSON.stringify(teammate)).not.toContain(token);
  const message=(await (await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:`@${teammate.handle} review this repository`},{TEAMMATE_WATCH_MS:'0'})).json()).message;
  const run=await env.DB.prepare("SELECT * FROM ai_teammate_runs WHERE org_id=?1 AND provider='acp'").bind(ORG).first();
@@ -126,7 +128,59 @@ test('a workspace ACP teammate queues prompts for a node without sending host la
  expect(JSON.parse(saved.remote).workspaceTools).toBe(true);
 });
 
-test('default ACP cloud fallback uses existing Workspace AI when the configured node is offline and preserves owner opt-out',async()=>{
+test('local ACP fallback defaults to owner approval and supports explicit ask, allow, and never policies',async()=>{
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway}=await registered.json();
+ const invalid=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackPolicy:'sometimes'});
+ expect(invalid.status).toBe(400);
+ const defaults=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local'});
+ expect((await defaults.json()).teammate.fallbackPolicy).toBe('ask');
+ for(const policy of ['ask','always','never']) {
+  const saved=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',gatewayId:gateway.id,agentKey:'codex-local',fallbackPolicy:policy});
+  expect((await saved.json()).teammate.fallbackPolicy).toBe(policy);
+ }
+ const compatibleAlways=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',fallbackToWorkspaceAI:true});
+ expect((await compatibleAlways.json()).teammate.fallbackPolicy).toBe('always');
+ const compatibleNever=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',fallbackToWorkspaceAI:false});
+ expect((await compatibleNever.json()).teammate.fallbackPolicy).toBe('never');
+});
+
+test('offline ACP fallback waits for an owner decision and only runs Workspace AI after one-message approval',async()=>{
+ const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
+ const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
+ const {gateway,token}=await registered.json();
+ await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
+ await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=1 WHERE org_id=?1 AND id=?2').bind(ORG,gateway.id).run();
+ expect(configured.status).toBe(200);
+ const teammate=(await configured.json()).teammate;
+ expect(teammate.fallbackPolicy).toBe('ask');
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
+ fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Approved workspace answer.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
+ const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'summarize the launch plan'});
+ const source=(await sent.json()).message;
+ const agent=await env.DB.prepare("SELECT * FROM custom_agents WHERE org_id=?1 AND owner_login='toru' AND provider='acp'").bind(ORG).first();
+ const {getUserByLogin}=await import('../src/db.js');
+ const {listMembers}=await import('../src/team.js');
+ const {resolveChannel}=await import('../src/channels.js');
+ const requester=await getUserByLogin(env.DB,'toru');
+ const members=await listMembers(env.DB,ORG,'9701');
+ const resolved=await resolveChannel(env.DB,ORG,requester,'b:cafe',members);
+ const sourceRow=await env.DB.prepare('SELECT * FROM channel_messages WHERE org_id=?1 AND id=?2').bind(ORG,source.id).first();
+ await runAgents({...env,OPENAI_API_KEY:'sk-existing-workspace'},{orgId:ORG,session:{github_id:'9701'},user:requester,resolved,row:sourceRow,members,locale:'en',agents:[agent]});
+ const approvalCardRow=await env.DB.prepare("SELECT card_id,data FROM cards WHERE org_id=?1 AND recipient_user_id='toru' AND status='pending'").bind(ORG).first();
+ expect(approvalCardRow).toBeTruthy();
+ const approvalCard=JSON.parse(approvalCardRow.data);
+ expect(approvalCard.agentFallbackApproval.choices).toContain('once');
+ expect(await env.DB.prepare("SELECT status FROM hx_agent_fallback_approvals WHERE org_id=?1 AND card_id=?2").bind(ORG,approvalCard.id).first()).toEqual({status:'pending'});
+ const settled=await decideAgentFallbackApproval(env,ORG,{...approvalCard,decision:{action:'approve',optionId:'once'}},'toru','9701');
+ expect(settled).toMatchObject({settled:true,action:'approve',choice:'once'});
+ expect((await env.DB.prepare('SELECT COUNT(*) n FROM hx_agent_fallback_permissions WHERE org_id=?1').bind(ORG).first()).n).toBe(0);
+ expect(await resumeApprovedAgentFallback({...env,OPENAI_API_KEY:'sk-existing-workspace'},ORG,settled.request)).toEqual({ok:true});
+ expect((await thread(toru,source.id)).map(row=>row.body).join('\n')).toContain('Approved workspace answer.');
+},15000);
+
+test('explicit ACP cloud fallback uses existing Workspace AI when the configured node is offline and preserves owner opt-out',async()=>{
  const {setMode}=await import('../src/harness/mode.js');await setMode(env.DB,ORG,'harness','9701');
  const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
  const {gateway,token}=await registered.json();
@@ -139,8 +193,10 @@ test('default ACP cloud fallback uses existing Workspace AI when the configured 
  expect(savedRemote.fallbackToWorkspaceAI).toBe(false);
  // Before the marker existed, false was the persisted default rather than an owner choice.
  delete savedRemote.fallbackToWorkspaceAIConfigured;
+ delete savedRemote.fallbackPolicy;
  await env.DB.prepare("UPDATE ai_teammates SET remote=?1 WHERE org_id=?2 AND provider='acp'").bind(JSON.stringify(savedRemote),ORG).run();
- expect((await (await get(`/teammates?${q({orgId:ORG,provider:'acp'})}`,toru)).json()).teammate.fallbackToWorkspaceAI).toBe(true);
+ expect((await (await get(`/teammates?${q({orgId:ORG,provider:'acp'})}`,toru)).json()).teammate.fallbackPolicy).toBe('ask');
+ await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',fallbackPolicy:'always'});
  await env.DB.prepare('UPDATE hx_gateways SET last_seen_at=1 WHERE org_id=?1 AND id=?2').bind(ORG,gateway.id).run();
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/responses',method:'POST'}).reply(400,{error:{message:'Responses unavailable'}}).times(2);
  fetchMock.get('https://api.openai.com').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'Completed with the existing Workspace model.'}}],usage:{prompt_tokens:8,completion_tokens:6}});
@@ -197,7 +253,7 @@ test('an online ACP node that rejects a full queue falls back without creating o
  const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
  const {gateway,token}=await registered.json();
  await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
- const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackPolicy:'always'});
  expect(configured.status).toBe(200);
  for(let i=0;i<100;i++)await env.DB.prepare(`INSERT INTO hx_gateway_jobs(id,org_id,gateway_id,created_by,request_id,payload,status,created_at)
    VALUES(?1,?2,?3,'9701',?4,'{}','queued',?5)`).bind(`queue-${i}`,ORG,gateway.id,`queue-request-${i}`,Date.now()).run();
@@ -217,7 +273,7 @@ test.each(['signed_out','runtime_unavailable','provider_limited'])('a local ACP 
  const registered=await send('POST','/gateways',toru,{orgId:ORG,name:'Mac mini'});
  const {gateway,token}=await registered.json();
  await worker.fetch(new Request('https://example.com/gateways/claim',{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({capabilities:['acp-v1'],acpAgents:['codex-local']})}),env,ctx);
- const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local'});
+ const configured=await send('PUT','/teammates',toru,{orgId:ORG,provider:'acp',enabled:true,gatewayId:gateway.id,agentKey:'codex-local',fallbackPolicy:'always'});
  expect(configured.status).toBe(200);
  const sent=await send('POST','/channels/messages',toru,{orgId:ORG,channel:'b:cafe',body:'@acp-agent summarize the launch plan'},{TEAMMATE_WATCH_MS:'0'});
  expect(sent.status).toBe(201);

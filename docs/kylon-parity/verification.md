@@ -4904,3 +4904,15 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added a native GitHub Agent search regression that revokes and regrants the same source grant while the provider request is blocked, then confirms the old private result is discarded despite current access being restored. Strengthened the scoped App write regression for the same revoke/regrant race: the first ambiguous response remains `unknown`, the same request ID is rejected with 409, and the external provider is called only once.
 - Focused `smithery-apps.test.js` and `harness-apps.test.js` passed **207/207**. This verifies existing fences rather than reporting a known production bypass. Full Worker suite, exact-head CI, and deployment remain pending. No schema, new provider/service, or Simple-mode change.
+
+### 2026-11-25 — Reconcile merged parity batches through main `40b9fdc0`
+
+- PR #1207 shipped authorized conversation-member Live Desktop control: exact-head CI #45249615686, main CI #45254437990, Worker deploy #45254438073, and Web deploy #45254437944 succeeded.
+- PR #1212 and #1213 shipped Agent connection and collaboration CLI commands: exact-head CI #45555562845 / #45560687194, main CI #45558851494 / #45564184210, and Web deploy #45558851617 / #45564183933 succeeded. Human-session checks, explicit confirmation, and version CAS remain enforced. Authenticated device acceptance and Kylon CLI comparison remain open.
+- PR #1214 and #1218 shipped the ACP fallback boundary and workspace-budget regressions: exact-head CI #45566542978 / #45592968626, main CI #45569992006 / #45596679398, and Worker deploy #45569991755 / #45596679425 succeeded. This release evidence does not prove the connected-node runtime or Kylon fallback behavior in production.
+- PR #1215 and #1216 shipped connector-generation fencing and native GitHub revoke/regrant regression coverage: exact-head CI #45574087934 / #45580570654, main CI #45577858122 / #45584080676, and Worker deploy #45577858011 / #45584080670 succeeded. Cross-user production isolation and full route/provider review remain open.
+- These releases supersede the earlier candidate notes above; their remaining acceptance gaps stay open. No new paid service or schema change was added by these slices; Simple mode is preserved.
+
+### 2026-11-25 — KY-131 changed in Kylon's November 23 release
+
+Kylon's [current changelog](https://kylon.io/changelog) changes the fallback contract: unconfigured Agents now wait for owner approval in the Agent DM; approval may cover one message, two hours, today, or always; workspace credits are not used before approval. Runtime settings expose Ask me, Always allow, and Never allow, and the request should return to the computer if it reconnects first. Honmaru still defaults unconfigured ACP Agents to automatic Workspace AI fallback and exposes only a boolean. The previous KY-131 acceptance was based on the November 15 behavior and is superseded. This is a P0 parity and spend-control gap; the code work remains pending until implemented and verified.

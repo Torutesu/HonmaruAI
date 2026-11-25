@@ -8,11 +8,14 @@ import {remoteHandoffInstruction,parseRemoteHandoff} from './harness/remoteHando
 import {drainTeammateResults} from './teammateResultDispatch.js';
 import {agentRunSnapshot} from './harness/agentRunSnapshot.js';
 import {recordAgentFallbackState,drainAgentFallbackNotifications} from './harness/agentFallback.js';
+import { agentFallbackPolicy } from './teammates.js';
+import { requestAgentFallbackApproval, hasAgentFallbackPermission } from './harness/agentFallbackApprovals.js';
 import { publicAppShareAgentTools } from './harness/appShareApproval.js';
 import {stopAssignment} from './harness/agentAssignmentStop.js';
 import {runAgentAssignment} from './harness/runAgentAssignment.js';
 import {drainAgentRequests} from './agentRequestDispatch.js';
 import {agentExecutionAuthorizer} from './agentExecutionGrant.js';
+import { mayUseConversation } from './harness/conversationAccess.js';
 import { searchRoom } from './roomSearch.js';
 import { roomHookAgentAllowed } from './harness/roomHookAgentAccess.js';
 import { createManagedRoom } from './harness/roomCreation.js';
@@ -537,7 +540,7 @@ export function classifyAgentFailure(result) {
 
 /// The agents' answers, side by side: each reads the conversation,
 /// researches with its tools, and answers as itself when it is ready.
-export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null, onRunEvent = null }) {
+export async function runAgents(env, { orgId, session, user, resolved, row, members, locale, agents, authorize = null, roomHookSource = false, assignment = null, requestOverride = null, durableExecution = false, registerAssignment = null, onRunEvent = null, approvedFallbackAgentId = null, forceLocalFallbackAgentId = null }) {
   if (authorize && !await authorize()) return 0;
   const taskText = requestOverride ?? row.body;
   locale = await loadCopy(env, locale || "en", { orgId });
@@ -569,11 +572,29 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   // Workspace AI provider and its existing allowance/budget gates.
   const fallbackTeammates = new Map();
   const fallbackReasons = new Map();
+  const waitingFallbackAgents = new Set();
+  const newFallbackApprovalAgents = new Set();
+  const blockedFallbackAgents = new Set();
   if (harness) {
     for (const agent of agents) {
       if (!TEAMMATE_PROVIDERS[agent.provider]?.localGateway) continue;
       const teammate = await teammateForAgent(env.DB, orgId, agent, env).catch(() => null);
-      if ((teammate?.remote?.fallbackToWorkspaceAIConfigured === true && teammate.remote.fallbackToWorkspaceAI !== true) || !teammate?.remote?.gatewayId || !teammate.remote.agentKey) continue;
+      const policy = agentFallbackPolicy(teammate?.remote);
+      const owner = await getUserByLogin(env.DB, agent.ownerLogin || agent.owner_login || '').catch(() => null);
+      const permission = owner?.github_id ? await hasAgentFallbackPermission(env.DB, orgId, agent.id, owner.github_id, Date.now()).catch(() => false) : false;
+      if (forceLocalFallbackAgentId === agent.id) continue;
+      if (approvedFallbackAgentId === agent.id) {
+        const liveRegistration = teammate?.remote?.gatewayId && teammate?.remote?.agentKey
+          ? await env.DB.prepare(`SELECT 1 FROM hx_gateways g JOIN hx_gateway_acp_agents a
+            ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+            WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`).bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey).first().catch(() => null)
+          : null;
+        if (policy !== 'never' && liveRegistration && await mayRunAgent(env.DB, orgId, agent, session.github_id) && await mayUseConversation(env.DB, orgId, session.github_id, resolved.key)) {
+          fallbackTeammates.set(agent.id, teammate); fallbackReasons.set(agent.id, 'approved');
+        } else blockedFallbackAgents.add(agent.id);
+        continue;
+      }
+      if (policy === 'never' || !teammate?.remote?.gatewayId || !teammate.remote.agentKey) continue;
       let node;
       try {
         node = await env.DB.prepare(`SELECT g.last_seen_at,g.revoked_at,a.agent_key,ca.owner_login FROM hx_gateways g
@@ -587,10 +608,23 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       const online = node.last_seen_at != null && Date.now() - Number(node.last_seen_at) <= 90_000;
       if (online) {
         await recordAgentFallbackState(env.DB,{orgId,agentId:agent.id,gatewayId:teammate.remote.gatewayId,ownerLogin:node.owner_login,state:'node'});
-      } else if (provider && allowance?.allowed) {
-        await recordAgentFallbackState(env.DB,{orgId,agentId:agent.id,gatewayId:teammate.remote.gatewayId,ownerLogin:node.owner_login,state:'workspace'});
-        fallbackTeammates.set(agent.id, teammate);
-        fallbackReasons.set(agent.id, 'offline');
+      } else {
+        if (policy === 'always' || permission) {
+          if (provider && allowance?.allowed) {
+            fallbackTeammates.set(agent.id, teammate);
+            fallbackReasons.set(agent.id, 'offline');
+          }
+        } else if (provider && allowance?.allowed && (!allowance.metered || Number(allowance.remaining || 0) > 0)) {
+          const approval = await requestAgentFallbackApproval(env, {
+            orgId, agent, teammate, requester: { ...user, ...session, github_id: session.github_id },
+            channel: resolved.key, threadId: row.parent_id || row.id, sourceMessageId: row.id,
+            sourceBody: row.body, fallbackReason: 'offline',
+          }).catch(() => null);
+          if (approval?.approval && approval.approval.status === 'pending') {
+            waitingFallbackAgents.add(agent.id);
+            if (approval.created) newFallbackApprovalAgents.add(agent.id);
+          }
+        }
       }
     }
     await drainAgentFallbackNotifications(env,broadcastStored).catch(err=>console.error('Agent fallback notification drain failed',safe(err?.message)));
@@ -711,9 +745,21 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
     modelLeft -= 1;
     return "model";
   });
+  const postFallbackWaiting = async agent => {
+    if (!newFallbackApprovalAgents.has(agent.id)) return;
+    newFallbackApprovalAgents.delete(agent.id);
+    const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: serverText(locale, 'agent.fallbackAwaitingApproval'), kind: 'agent', parentId });
+    if (out.row) {
+      await queueMessagePushes(env, orgId, out.row, { members }).catch(() => {});
+      await broadcastWithParent(env, orgId, resolved, out.row, members);
+      await emitMessage(env, orgId, out.row);
+    }
+  };
   // Every agent called works at once, each answering as soon as it is done:
   // five agents take as long as the slowest, not the sum of all five.
   const answerOne = async (agent, index, authorizeAgent = authorize, runtimeTools = {}, replyFence = null, signal = null) => {
+    if (blockedFallbackAgents.has(agent.id)) return;
+    if (waitingFallbackAgents.has(agent.id)) { await postFallbackWaiting(agent); return; }
     const authorize = authorizeAgent || (harness && sourceGrantAgentId === agent.id) ? async () => {
       if (authorizeAgent && !await authorizeAgent(agent.id)) return false;
       if (harness && sourceGrantAgentId === agent.id) {
@@ -749,8 +795,27 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
         console.error("teammate failed",safe(err?.message));
       } finally {await progress(agent,"done");}
       if (teammateResult?.workspaceFallback === 'unavailable') {
-        fallbackTeammates.set(agent.id, t);
-        fallbackReasons.set(agent.id, 'unavailable');
+        const currentPolicy = agentFallbackPolicy(t?.remote);
+        const owner = await getUserByLogin(env.DB, agent.ownerLogin || agent.owner_login || '').catch(() => null);
+        const temporaryPermission = owner?.github_id ? await hasAgentFallbackPermission(env.DB, orgId, agent.id, owner.github_id).catch(() => false) : false;
+        if (currentPolicy === 'always' || temporaryPermission) {
+          fallbackTeammates.set(agent.id, t);
+          fallbackReasons.set(agent.id, 'unavailable');
+        } else if (provider && allowance?.allowed && (!allowance.metered || modelLeft > 0)) {
+          const approval = await requestAgentFallbackApproval(env, {
+            orgId, agent, teammate: t, requester: { ...user, ...session, github_id: session.github_id },
+            channel: resolved.key, threadId: row.parent_id || row.id, sourceMessageId: row.id,
+            sourceBody: row.body, fallbackReason: 'unavailable',
+          }).catch(() => null);
+          if (approval?.approval && approval.approval.status === 'pending') {
+            waitingFallbackAgents.add(agent.id);
+            if (approval.created) await postFallbackWaiting(agent);
+            return;
+          }
+          return teammateResult;
+        } else {
+          spend[index] = 'quota';
+        }
         if (provider && allowance?.allowed && (!allowance.metered || modelLeft > 0)) {
           if (allowance.metered) modelLeft -= 1;
           spend[index] = 'model';
@@ -851,6 +916,11 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
       }
       const out = await postMessage(env.DB, { orgId, key: resolved.key, authorLogin: `agent:${agent.id}`, body: text, kind: "agent", parentId, roomHookSource, assignmentFence:replyFence, automationOfferId:recurringOfferId||null });
       if (out.row) {
+        if (modelAnswered && fallbackTeammates.has(agent.id)) {
+          const fallbackTeammate = fallbackTeammates.get(agent.id);
+          await recordAgentFallbackState(env.DB, { orgId, agentId: agent.id, gatewayId: fallbackTeammate?.remote?.gatewayId, ownerLogin: agent.ownerLogin || agent.owner_login, state: 'workspace' }).catch(() => {});
+          await drainAgentFallbackNotifications(env, broadcastStored).catch(() => {});
+        }
         if (harness && toolTrace && await (!authorize || authorize())) {
           await storeAgentToolTrace(env.DB, {
             orgId, messageId: out.row.id, channel: resolved.key, agentId: agent.id,
@@ -907,6 +977,52 @@ export async function runAgents(env, { orgId, session, user, resolved, row, memb
   return answered;
 }
 
+export async function resumeApprovedAgentFallback(env, orgId, request) {
+  const agent = await env.DB.prepare(`SELECT id,handle,name,emoji,instructions,scope,owner_login,provider FROM custom_agents
+    WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL`).bind(orgId, request.agent_id).first();
+  const requester = await getUserByLogin(env.DB, request.requester_login).catch(() => null);
+  const row = await env.DB.prepare(`SELECT * FROM channel_messages WHERE org_id=?1 AND id=?2 AND channel=?3 AND deleted_at IS NULL`)
+    .bind(orgId, request.source_message_id, request.channel).first();
+  const teammate = agent ? await loadTeammate(env.DB, orgId, agent.provider, env).catch(() => null) : null;
+  const registration = teammate?.remote?.gatewayId && teammate.remote.agentKey
+    ? await env.DB.prepare(`SELECT 1 FROM hx_gateways g JOIN hx_gateway_acp_agents a ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+      WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`).bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey).first().catch(() => null)
+    : null;
+  if (!agent || !requester || !row || !await mayRunAgent(env.DB, orgId, agent, request.requester_id) ||
+      !teammate?.enabled || teammate.agentId !== agent.id || !registration || agentFallbackPolicy(teammate.remote) === 'never' ||
+      !await mayUseConversation(env.DB, orgId, request.requester_id, request.channel) || await getMode(env.DB, orgId).catch(() => null) !== 'harness') return { error: 'Fallback request access changed.' };
+  const members = await listMembers(env.DB, orgId, request.requester_id).catch(() => []);
+  const resolved = await resolveChannel(env.DB, orgId, requester, request.channel, members).catch(() => null);
+  const session = { github_id: request.requester_id };
+  if (!resolved) return { error: 'The original conversation is unavailable.' };
+  await runAgents(env, { orgId, session, user: requester, resolved, row, members, locale: requester.locale || 'en', agents: [agent], approvedFallbackAgentId: agent.id });
+  return { ok: true };
+}
+
+export async function resumeAgentFallbackOnComputer(env, orgId, request) {
+  const agent = await env.DB.prepare(`SELECT id,handle,name,emoji,instructions,scope,owner_login,provider FROM custom_agents
+    WHERE org_id=?1 AND id=?2 AND deleted_at IS NULL`).bind(orgId, request.agent_id).first();
+  const requester = await getUserByLogin(env.DB, request.requester_login).catch(() => null);
+  const row = await env.DB.prepare(`SELECT * FROM channel_messages WHERE org_id=?1 AND id=?2 AND channel=?3 AND deleted_at IS NULL`)
+    .bind(orgId, request.source_message_id, request.channel).first();
+  const teammate = agent ? await loadTeammate(env.DB, orgId, agent.provider, env).catch(() => null) : null;
+  const node = teammate?.remote?.gatewayId && teammate.remote.agentKey
+    ? await env.DB.prepare(`SELECT g.last_seen_at FROM hx_gateways g JOIN hx_gateway_acp_agents a
+      ON a.org_id=g.org_id AND a.gateway_id=g.id AND a.agent_key=?3
+      WHERE g.org_id=?1 AND g.id=?2 AND g.revoked_at IS NULL`).bind(orgId, teammate.remote.gatewayId, teammate.remote.agentKey).first().catch(() => null)
+    : null;
+  if (!agent || !requester || !row || !teammate?.enabled || teammate.agentId !== agent.id || !node || node.last_seen_at == null ||
+      Date.now() - Number(node.last_seen_at) > 90_000 || !await mayRunAgent(env.DB, orgId, agent, request.requester_id) ||
+      !await mayUseConversation(env.DB, orgId, request.requester_id, request.channel) || await getMode(env.DB, orgId).catch(() => null) !== 'harness')
+    return { error: 'The execution computer is not available or access changed.' };
+  const members = await listMembers(env.DB, orgId, request.requester_id).catch(() => []);
+  const resolved = await resolveChannel(env.DB, orgId, requester, request.channel, members).catch(() => null);
+  if (!resolved) return { error: 'The original conversation is unavailable.' };
+  await runAgents(env, { orgId, session: { github_id: request.requester_id }, user: requester, resolved, row, members,
+    locale: requester.locale || 'en', agents: [agent], forceLocalFallbackAgentId: agent.id });
+  return { ok: true };
+}
+
 /// Where a teammate's words go: under the message that called it, or, in a
 /// conversation with it, into the conversation itself ("-").
 const teammateParent = (resolved, row) => row.parent_id || (resolved.kind === "agent" ? null : row.id);
@@ -946,7 +1062,7 @@ async function runTeammate(env, { orgId, user, requesterId, resolved, row, membe
     });
   } catch (err) {
     console.error("teammate start failed", safe(err?.message));
-    if (allowWorkspaceFallback && err?.safeWorkspaceFallback && (t.remote?.fallbackToWorkspaceAIConfigured !== true || t.remote?.fallbackToWorkspaceAI === true)) {
+    if (allowWorkspaceFallback && err?.safeWorkspaceFallback) {
       return { workspaceFallback: 'unavailable' };
     }
     return say("teammate.failed");
@@ -967,7 +1083,8 @@ async function answerAcpWithWorkspaceAI(env, run, teammate, fallbackReason, { si
   // actions, room hooks, and Agent-to-Agent assignments keep their existing
   // execution and approval paths.
   if (run.assignment_id || run.room_hook_source || run.on_behalf_of || await getMode(env.DB, run.org_id) !== 'harness') return null;
-  if (teammate?.remote?.fallbackToWorkspaceAIConfigured === true && teammate.remote.fallbackToWorkspaceAI !== true) return null;
+  const policy = agentFallbackPolicy(teammate?.remote);
+  if (policy === 'never') return null;
   const starter = run.started_by ? await getUserByLogin(env.DB, run.started_by).catch(() => null) : null;
   if (!starter?.github_id || !starter.login) return null;
   const agent = await env.DB.prepare(`SELECT id,handle,name,emoji,instructions,scope,owner_login
@@ -986,6 +1103,20 @@ async function answerAcpWithWorkspaceAI(env, run, teammate, fallbackReason, { si
   const allowance = provider ? await allowanceFor(env, run.org_id, { githubId: String(starter.github_id) }) : null;
   if (!provider || !allowance?.allowed) return null;
   const locale = await loadCopy(env, starter.locale || 'en', { orgId: run.org_id });
+  const owner = await getUserByLogin(env.DB, agent.owner_login).catch(() => null);
+  const temporaryPermission = owner?.github_id ? await hasAgentFallbackPermission(env.DB, run.org_id, agent.id, owner.github_id).catch(() => false) : false;
+  if (policy !== 'always' && !temporaryPermission) {
+    const source = run.source_message_id ? await env.DB.prepare(`SELECT id,channel,parent_id,body,deleted_at FROM channel_messages
+      WHERE org_id=?1 AND id=?2 AND channel=?3`).bind(run.org_id, run.source_message_id, run.channel).first().catch(() => null) : null;
+    if (!source || source.deleted_at) { await allowance.release?.(); return null; }
+    const approval = await requestAgentFallbackApproval(env, {
+      orgId: run.org_id, agent, teammate, requester: starter, channel: run.channel,
+      threadId: source.parent_id || source.id, sourceMessageId: source.id, sourceBody: source.body, fallbackReason,
+    }).catch(() => null);
+    await allowance.release?.();
+    if (!approval?.approval || approval.approval.status !== 'pending') return null;
+    return { texts: [serverText(locale, 'agent.fallbackAwaitingApproval')], stop: 'end_turn', last: null, costCents: null };
+  }
   const freshAuthorization = async () => {
     if (signal?.aborted || await getMode(env.DB, run.org_id).catch(() => null) !== 'harness') return false;
     const current = await loadTeammate(env.DB, run.org_id, teammate.provider, env).catch(() => null);

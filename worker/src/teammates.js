@@ -105,6 +105,12 @@ const START_HOLD_MS = 10 * 60 * 1000;
 
 const parse = (text, fallback) => { try { return text ? JSON.parse(text) : fallback; } catch { return fallback; } };
 
+export function agentFallbackPolicy(remote) {
+  if (['ask', 'always', 'never'].includes(remote?.fallbackPolicy)) return remote.fallbackPolicy;
+  if (remote?.fallbackToWorkspaceAIConfigured === true) return remote.fallbackToWorkspaceAI === true ? 'always' : 'never';
+  return 'ask';
+}
+
 export async function loadTeammate(db, orgId, provider, env = null) {
   if (env) useSecretKey(env);
   const row = await db.prepare("SELECT * FROM ai_teammates WHERE org_id = ?1 AND provider = ?2").bind(orgId, provider).first().catch(() => null);
@@ -156,10 +162,8 @@ export function toClientTeammate(t, provider, spentCents = 0, canRevealWebhookUr
     completionMcpUrl: p.webhookBot && canRevealWebhookUrl ? completionMcpUrl : "",
     workspaceTools: Boolean(t?.remote?.workspaceTools),
     browserTools: Boolean(t?.remote?.browserTools),
-    // Match Kylon's fallback-on-unless-changed behavior for local ACP agents.
-    // Older releases wrote false as the default without recording an owner
-    // choice, so only the new marker makes false an explicit opt-out.
-    fallbackToWorkspaceAI: Boolean(p.localGateway && (t?.remote?.fallbackToWorkspaceAIConfigured !== true || t?.remote?.fallbackToWorkspaceAI === true)),
+    fallbackPolicy: p.localGateway ? agentFallbackPolicy(t?.remote) : null,
+    fallbackToWorkspaceAI: Boolean(p.localGateway && agentFallbackPolicy(t?.remote) === 'always'),
     repos: t?.repos || [], model: t?.model || p.defaultModel || "", instructions: t?.instructions || "",
     channels: t?.channels ?? null,
     autoBuild: t ? t.autoBuild !== false : true,
@@ -181,18 +185,19 @@ function cleanInput(input, current, provider) {
     if (input.workspaceTools !== undefined && typeof input.workspaceTools !== "boolean") return { error: "Workspace MCP access must be enabled or disabled." };
     if (input.browserTools !== undefined && typeof input.browserTools !== "boolean") return { error: "Isolated browser access must be enabled or disabled." };
     if (input.fallbackToWorkspaceAI !== undefined && typeof input.fallbackToWorkspaceAI !== "boolean") return { error: "Workspace AI fallback must be enabled or disabled." };
+    if (input.fallbackPolicy !== undefined && !['ask', 'always', 'never'].includes(input.fallbackPolicy)) return { error: "Choose Ask me, Always allow, or Never allow for Workspace AI fallback." };
     if (gatewayId && !/^[A-Za-z0-9_-]{8,80}$/.test(gatewayId)) return { error: "Choose a registered execution node." };
     if (agentKey && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(agentKey)) return { error: "Write the local ACP agent key configured on the node." };
     out.gatewayId = gatewayId || null;
     out.agentKey = agentKey || null;
     out.workspaceTools = input.workspaceTools === undefined ? Boolean(current?.remote?.workspaceTools) : input.workspaceTools;
     out.browserTools = input.browserTools === undefined ? Boolean(current?.remote?.browserTools) : input.browserTools;
-    out.fallbackToWorkspaceAI = input.fallbackToWorkspaceAI === undefined
-      ? current?.remote?.fallbackToWorkspaceAIConfigured === true ? current.remote.fallbackToWorkspaceAI === true : true
-      : input.fallbackToWorkspaceAI;
-    out.fallbackToWorkspaceAIConfigured = input.fallbackToWorkspaceAI === undefined
-      ? current?.remote?.fallbackToWorkspaceAIConfigured === true
-      : true;
+    out.fallbackPolicy = input.fallbackPolicy !== undefined ? input.fallbackPolicy
+      : input.fallbackToWorkspaceAI !== undefined ? input.fallbackToWorkspaceAI ? 'always' : 'never'
+      : agentFallbackPolicy(current?.remote);
+    out.fallbackToWorkspaceAI = out.fallbackPolicy === 'always';
+    out.fallbackToWorkspaceAIConfigured = input.fallbackPolicy !== undefined || input.fallbackToWorkspaceAI !== undefined
+      ? true : current?.remote?.fallbackToWorkspaceAIConfigured === true;
   }
   if (p.webhookBot && input.webhookUrl !== undefined) {
     const raw = String(input.webhookUrl || "").trim();
@@ -977,10 +982,10 @@ export async function saveTeammate(env, orgId, provider, input, { login, workspa
     channels: current ? current.channels : null, monthlyLimitCents: current ? current.monthlyLimitCents : p.defaultLimit,
     tools: current?.tools || [], remote: current?.remote || {}, agentId: current?.agentId || null,
     autoBuild: current ? current.autoBuild !== false : true,
-    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "fallbackToWorkspaceAI", "fallbackToWorkspaceAIConfigured", "webhookUrl"].includes(k))),
+    ...Object.fromEntries(Object.entries(out).filter(([k]) => !["tools", "account", "gatewayId", "agentKey", "workspaceTools", "browserTools", "fallbackToWorkspaceAI", "fallbackToWorkspaceAIConfigured", "fallbackPolicy", "webhookUrl"].includes(k))),
   };
   if (out.account !== undefined) next.remote = { ...next.remote, account: out.account };
-  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true, fallbackToWorkspaceAI: out.fallbackToWorkspaceAI === true, fallbackToWorkspaceAIConfigured: out.fallbackToWorkspaceAIConfigured === true };
+  if (p.localGateway) next.remote = { ...next.remote, gatewayId: out.gatewayId, agentKey: out.agentKey, workspaceTools: out.workspaceTools === true, browserTools: out.browserTools === true, fallbackPolicy: out.fallbackPolicy, fallbackToWorkspaceAI: out.fallbackToWorkspaceAI === true, fallbackToWorkspaceAIConfigured: out.fallbackToWorkspaceAIConfigured === true };
   if (p.webhookBot && out.webhookUrl !== undefined) next.remote = { ...next.remote, webhookUrl: out.webhookUrl };
   if (p.githubToken && !p.keyless && next.repos.length && !next.githubToken) return { error: `Add a GitHub token so ${p.name} can reach the repositories.` };
   let toolChanges = { kept: next.tools, written: [], removed: [] };
@@ -1084,8 +1089,8 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThr
     const sent = await adapter.send(t, existing, `${askedBy}: ${turnRequest}`, { env, orgId, requesterId, context: transcript, conversation });
     if (sent.busy) return { refused: "busy" };
     // The next answer is for whoever this turn was asked for.
-    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_id = COALESCE(?10, remote_id), remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9 WHERE id = ?1 RETURNING turn_version")
-      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId || null,sent.remoteId || null).first();
+    const advanced = await env.DB.prepare("UPDATE ai_teammate_runs SET status = 'running', remote_id = COALESCE(?10, remote_id), remote_turn = COALESCE(?3, remote_turn), cost_cents = cost_cents + ?4, on_behalf_of = ?5, room_hook_source = ?6, updated_at = ?2, turn_version=turn_version+1, result_delivery_id=NULL, assignment_id=?7, assignment_generation=?8, assignment_agent_id=?9,source_message_id=COALESCE(?11,source_message_id) WHERE id = ?1 RETURNING turn_version")
+      .bind(existing.id, stamp, sent.turn || null, (sent.tasks || 0) * 100, onBehalfOf, roomHookSource,assignment?.assignmentId || null,assignment?.generation ?? null,assignment?.agentId ?? null,sent.remoteId || null,sourceMessageId).first();
     return { run: { ...existing, status: "running", remote_id: sent.remoteId || existing.remote_id, remote_turn: sent.turn || existing.remote_turn, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:advanced.turn_version, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null }, continued: true };
   }
   // The run is reserved before the paid start, in one statement D1 runs on
@@ -1100,13 +1105,13 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThr
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
   const held = new Date(now.getTime() - START_HOLD_MS).toISOString();
   const reserved = await env.DB.prepare(
-    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source, assignment_id, assignment_generation, assignment_agent_id)
-     SELECT ?1, ?2, ?3, ?4, ?5, '', NULL, 'starting', ?6, NULL, ?7, ?8, ?8, ?9, ?10, ?11, ?12, ?13
+    `INSERT INTO ai_teammate_runs (id, org_id, provider, channel, thread_id, remote_id, remote_turn, status, cost_cents, last_event_at, started_by, created_at, updated_at, on_behalf_of, room_hook_source, assignment_id, assignment_generation, assignment_agent_id,source_message_id)
+     SELECT ?1, ?2, ?3, ?4, ?5, '', NULL, 'starting', ?6, NULL, ?7, ?8, ?8, ?9, ?10, ?11, ?12, ?13,?14
       WHERE NOT EXISTS (SELECT 1 FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND channel = ?4 AND thread_id = ?5
-                          AND (status = 'running' OR (status = 'starting' AND updated_at > ?14)))
-        AND (?15 IS NULL OR ?15 - (SELECT COALESCE(SUM(cost_cents), 0) FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND created_at >= ?16
-                                     AND (status != 'starting' OR updated_at > ?14)) >= ?6)`
-  ).bind(id, orgId, t.provider, key, threadId, reserve, login, stamp, onBehalfOf, roomHookSource, assignment?.assignmentId || null, assignment?.generation ?? null, assignment?.agentId || null, held, t.monthlyLimitCents ?? null, monthStart).run();
+                          AND (status = 'running' OR (status = 'starting' AND updated_at > ?15)))
+        AND (?16 IS NULL OR ?16 - (SELECT COALESCE(SUM(cost_cents), 0) FROM ai_teammate_runs WHERE org_id = ?2 AND provider = ?3 AND created_at >= ?17
+                                     AND (status != 'starting' OR updated_at > ?15)) >= ?6)`
+  ).bind(id, orgId, t.provider, key, threadId, reserve, login, stamp, onBehalfOf, roomHookSource, assignment?.assignmentId || null, assignment?.generation ?? null, assignment?.agentId || null, sourceMessageId, held, t.monthlyLimitCents ?? null, monthStart).run();
   if (!(reserved.meta?.changes > 0)) {
     const open = await env.DB.prepare(`SELECT 1 FROM ai_teammate_runs WHERE org_id = ?1 AND provider = ?2 AND channel = ?3 AND thread_id = ?4
         AND (status = 'running' OR (status = 'starting' AND updated_at > ?5)) LIMIT 1`).bind(orgId, t.provider, key, threadId, held).first();
@@ -1129,7 +1134,7 @@ export async function startTeammateRun(env, { orgId, t, key, threadId, sourceThr
       .catch(e=>console.error('failed external-start cancellation reconciliation',safe(e?.message)));
     throw err;
   }
-  const run = { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null };
+  const run = { id, org_id: orgId, provider: t.provider, channel: key, thread_id: threadId, remote_id: started.remoteId, remote_turn: started.turn || null, status: "running", last_event_at: null, on_behalf_of: onBehalfOf, room_hook_source:roomHookSource, source_message_id: sourceMessageId, turn_version:0, assignment_id:assignment?.assignmentId || null,assignment_generation:assignment?.generation ?? null,assignment_agent_id:assignment?.agentId || null };
   await env.DB.prepare("UPDATE ai_teammate_runs SET remote_id = ?3, remote_turn = ?4, status = 'running', cost_cents = ?5, updated_at = ?6 WHERE id = ?1 AND org_id = ?2 AND status = 'starting'")
     .bind(id, orgId, started.remoteId, started.turn || null, (started.tasks || 0) * 100, stamp).run();
   // Stop can win while the provider's start request is in flight. Once the

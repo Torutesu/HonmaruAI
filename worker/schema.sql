@@ -1044,7 +1044,8 @@ CREATE TABLE IF NOT EXISTS ai_teammate_runs (
   /* When the minute cron last looked in on it (teammates.js openRuns): it
      reads the least recently looked at first, so every running run is
      reached. Its index is in migrations.sql, after the column. */
-  checked_at TEXT
+  checked_at TEXT,
+  source_message_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_status ON ai_teammate_runs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_teammate_runs_thread ON ai_teammate_runs(org_id, channel, thread_id);
@@ -2804,6 +2805,9 @@ CREATE INDEX IF NOT EXISTS idx_teammate_result_pending ON ai_teammate_result_dis
 CREATE TABLE IF NOT EXISTS hx_agent_fallback_state (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, current_state TEXT NOT NULL CHECK(current_state IN ('node','workspace')), version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, PRIMARY KEY(org_id,agent_id));
 CREATE TABLE IF NOT EXISTS hx_agent_fallback_events (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, owner_login TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('node','workspace')), version INTEGER NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','delivered','cancelled')), attempts INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(org_id,agent_id,version));
 CREATE INDEX IF NOT EXISTS idx_agent_fallback_events_pending ON hx_agent_fallback_events(status,created_at);
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_approvals (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, agent_id TEXT NOT NULL, gateway_id TEXT NOT NULL, owner_login TEXT NOT NULL, owner_id TEXT NOT NULL, owner_membership TEXT NOT NULL, requester_id TEXT NOT NULL, requester_login TEXT NOT NULL, requester_membership TEXT NOT NULL, channel TEXT NOT NULL, thread_id TEXT NOT NULL, source_message_id TEXT NOT NULL, source_hash TEXT NOT NULL, fallback_reason TEXT NOT NULL, card_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','approved','declined','expired','cancelled','returned_to_node','failed')), scope TEXT, expires_at TEXT NOT NULL, allowance_expires_at TEXT, created_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT, updated_at TEXT NOT NULL, UNIQUE(org_id,agent_id,source_message_id), UNIQUE(org_id,card_id));
+CREATE INDEX IF NOT EXISTS idx_agent_fallback_approvals_pending ON hx_agent_fallback_approvals(org_id,status,expires_at);
+CREATE TABLE IF NOT EXISTS hx_agent_fallback_permissions (org_id TEXT NOT NULL, agent_id TEXT NOT NULL, owner_id TEXT NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('two_hours','today')), expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT, PRIMARY KEY(org_id,agent_id));
 
 CREATE TABLE IF NOT EXISTS hx_app_automation_state (org_id TEXT NOT NULL, app_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, draft TEXT NOT NULL, published TEXT, release_id TEXT, published_at TEXT, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, PRIMARY KEY(org_id,app_id));
 

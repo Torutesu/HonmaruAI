@@ -32,6 +32,7 @@ import { learnFromDecision } from "./memory.js";
 import { settleWorkflowApproval } from "./harness/workflows.js";
 import { settleAgentAccessRequest } from "./harness/agentAccessRequests.js";
 import { decideAgentWakeApproval } from './harness/agentWakeApprovals.js';
+import { decideAgentFallbackApproval } from './harness/agentFallbackApprovals.js';
 import { acceptAgentHandoff, assignmentExecutionGrant, assignmentTargets } from './harness/agentAssignmentGrant.js';
 import { endAssignment } from './harness/agentAssignments.js';
 import { drainAgentHandoffs } from './harness/agentHandoffDispatch.js';
@@ -1385,6 +1386,36 @@ export class OrgRelay {
           } else if(result.operation) {
             await drainAgentHandoffs(this.env,{orgId,operationId:r.operation_id}).catch(()=>{});
           }
+        }
+      }
+      else if (card?.agentFallbackApproval && ['approve','decline'].includes(card.decision?.action)) {
+        const settled = await decideAgentFallbackApproval(this.env, orgId, card, actorLogin, actorGithubId);
+        if (settled?.settled) {
+          if (settled.action === 'approve') {
+            const resumed = await import('./channelRoutes.js').then(m => m.resumeApprovedAgentFallback(this.env, orgId, settled.request));
+            if (resumed?.error) {
+              await this.db.prepare(`UPDATE hx_agent_fallback_approvals SET status='failed',updated_at=?3 WHERE org_id=?1 AND id=?2 AND status='approved'`)
+                .bind(orgId, settled.request.id, new Date().toISOString()).run();
+              card.status = 'rejected'; card.summary = 'Approval was saved, but the request could not safely resume.';
+            } else {
+              card.status = 'approved';
+              card.summary = settled.choice === 'once' ? 'Allowed for this message.' : settled.choice === 'always' ? 'Always allowed for this Agent.' : `Allowed ${settled.choice === 'today' ? 'until the end of today' : 'for two hours'}.`;
+            }
+          } else {
+            if (settled.action === 'returned_to_node') {
+              const resumed = await import('./channelRoutes.js').then(m => m.resumeAgentFallbackOnComputer(this.env, orgId, settled.request));
+              card.status = resumed?.error ? 'rejected' : 'approved';
+              card.summary = resumed?.error ? 'The execution computer is not available. Reconnect it, then ask the Agent again.' : 'The request was returned to the execution computer.';
+            } else {
+              card.status = 'rejected'; card.summary = 'Workspace AI fallback declined.';
+            }
+          }
+          await saveCard(this.db, orgId, card);
+          await announceCards(this.env, orgId, [card], { isNew: false });
+        } else if (settled?.expired || settled?.cancelled) {
+          card.status = 'rejected'; card.summary = settled.expired ? 'This fallback request expired.' : 'The request, Agent, or access changed before approval.';
+          await saveCard(this.db, orgId, card);
+          await announceCards(this.env, orgId, [card], { isNew: false });
         }
       }
       else if (card?.proposal) await settleProposal(this.env, orgId, card);

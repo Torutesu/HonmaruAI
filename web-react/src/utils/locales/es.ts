@@ -1,6 +1,15 @@
 // The interface in es: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Fallback to Workspace AI': 'Cambiar a Workspace AI',
+  'Ask me': 'Solicitar aprobación',
+  'Always allow': 'Permitir siempre',
+  'Never allow': 'No permitir',
+  'Ask me sends the owner a private approval when this Agent’s computer cannot answer. The owner can allow this message, two hours, today, or always. No Workspace AI request or usage is made before approval. If the computer reconnects first, the request returns there. Always allow and Never allow apply to future requests.': 'Si el ordenador de este agente no puede responder, se solicita aprobación privada al propietario. Puede permitir este mensaje, durante dos horas, hoy o siempre. No se solicita ni consume Workspace AI antes de aprobar. Si el ordenador se reconecta primero, la solicitud vuelve allí. Permitir siempre y No permitir se aplican a futuras solicitudes.',
+  'Allow this message': 'Permitir este mensaje',
+  'Allow for two hours': 'Permitir durante dos horas',
+  'Allow until today ends': 'Permitir hasta el final del día',
+  'Try local computer': 'Probar el ordenador local',
   '{actor} added a record to {entity}': '{actor} añadió un registro a {entity}',
   '{actor} updated a record in {entity}': '{actor} actualizó un registro en {entity}',
   '{actor} deleted a record from {entity}': '{actor} eliminó un registro de {entity}',
