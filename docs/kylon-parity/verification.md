@@ -1,3 +1,9 @@
+### 2026-11-25 — Harness legacy surfaces use Harness light/dark colors
+
+- Mapped legacy Harness view colors to the existing Harness palette inside `.hx-screen`. This fixes old app tiles, table headers, workflow controls, and danger states following Simple's marble colors in dark mode. The selector is scoped to Harness screens; Simple mode keeps its existing palette.
+- Added a source regression for scoped palette tokens. Web suite passed **288 files / 2,196 tests**, TypeScript and production build passed, and `git diff --check` passed.
+- Authenticated Kylon side-by-side comparison and an actual browser screenshot are still unavailable in this turn; the change is verified against the existing local theme tokens and build.
+
 ### 2026-11-23 — KY-121 Members directory search
 
 - Kylon changelogはMembers一覧を名前またはAgent specialtyで絞り込めると記載。既存のAgent名・専門分野検索を拡張し、All/Agentsの同じ検索欄でメンバー名・handle・aliasも検索します。NFKCで全角英数を通常表記へ正規化し、日本語も検索可能です。Peopleタブは従来どおり全件表示し、検索欄を隠します。
