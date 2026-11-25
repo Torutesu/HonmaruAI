@@ -76,6 +76,8 @@ Usage:
   honmaru workspace thread mute|unmute <room-id> <root-id>
   honmaru workspace thread status|follow|leave <room-id> <root-id> [--org-id ORG]
   honmaru workspace thread pin|unpin <room-id> <root-id>
+  honmaru workspace agent wake grants [--org-id ORG]
+  honmaru workspace agent wake revoke <grant-id> --confirm [--org-id ORG]
   honmaru workspace table list
   honmaru workspace table contract publish <table-id> --expected-updated-at ISO [--org-id ORG]
   honmaru workspace table contract list <table-id> [--org-id ORG]
@@ -135,10 +137,10 @@ Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, file administration, Skill shares, pinned contracts)
+HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, Agent wake grants, file administration, Skill shares, pinned contracts)
   HONMARU_ORG_ID          Workspace id for commands that address a specific workspace
 
-Agent commands use the API token. Room visual changes, Thread follow state, public file-share
+Agent workspace operations use the API token. Agent wake grant administration, Room visual changes, Thread follow state, public file-share
 decisions, permanent file purges, and Skill share-link create/import require a human session
 token; they never use the agent token. Skill import bearer tokens are read from the named
 --token-env variable, never from a positional argument.
@@ -1150,6 +1152,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await threadFollowCommand({ action: operation, positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "agent" && operation === "wake" && ["grants", "revoke"].includes(commandArgs[0])) {
+      await agentWakeGrantCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
     if (aliasMode && resource === "file" && operation === "purge") {
       await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
@@ -1711,6 +1717,56 @@ async function threadFollowCommand({ action, positional, options, apiUrl, sessio
     throw new Error("Honmaru returned an invalid Thread follow state. Read the Thread state before retrying.");
   }
   writeOut(JSON.stringify({ conversationId: positional[0], threadId: positional[1], left: result.left, muted: result.muted }));
+}
+
+async function agentWakeGrantCommand({ action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  const usage = action === "grants"
+    ? "honmaru workspace agent wake grants [--org-id ORG]"
+    : "honmaru workspace agent wake revoke <grant-id> --confirm [--org-id ORG]";
+  onlyFlags(options, action === "revoke" ? ["orgId", "confirm"] : ["orgId"]);
+  positionalCount(positional, action === "revoke" ? 1 : 0, usage);
+  if (action === "revoke" && !options.confirm) throw new Error("--confirm is required to revoke an Agent wake grant.");
+  const workspaceId = typeof options.orgId === "string" && options.orgId.trim() ? options.orgId.trim() : configuredOrgId;
+  if (typeof workspaceId !== "string" || !workspaceId.trim()) throw new Error("Set HONMARU_ORG_ID or pass --org-id to manage Agent wake grants.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot manage Agent wake grants.");
+  }
+  const endpoint = new URL("/hx/agent-wake-grants", new URL(mcpEndpoint(apiUrl)).origin);
+  endpoint.searchParams.set("orgId", workspaceId);
+  if (action === "revoke") endpoint.searchParams.set("grantId", positional[0]);
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      method: action === "grants" ? "GET" : "DELETE",
+      redirect: "error",
+      headers: { "x-session-token": sessionToken, accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error(action === "grants"
+      ? "Agent wake grants could not be fetched. The CLI did not retry."
+      : "The Agent wake grant revocation could not be confirmed. Check the grant list before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) throw new Error(`Honmaru rejected the Agent wake grant request (HTTP ${response.status}). The CLI did not retry.`);
+  const result = await response.json().catch(() => null);
+  if (action === "revoke") {
+    if (!result || result.revoked !== true) throw new Error("Honmaru returned an invalid Agent wake grant revocation result. Check the grant list before retrying.");
+    writeOut(JSON.stringify({ revoked: true, grantId: positional[0] }));
+    return;
+  }
+  if (!result || !Array.isArray(result.grants) || !result.grants.every(grant =>
+    grant && typeof grant.id === "string" && typeof grant.sourceAgentId === "string" && typeof grant.targetAgentId === "string" &&
+    typeof grant.room === "string" && ["once", "ten_minutes", "thread", "room"].includes(grant.scope) &&
+    typeof grant.state === "string" && ["active", "expired", "consumed", "revoked"].includes(grant.state))) {
+    throw new Error("Honmaru returned an invalid Agent wake grant list.");
+  }
+  writeOut(JSON.stringify({ grants: result.grants.map(grant => ({
+    id: grant.id, sourceAgentId: grant.sourceAgentId, targetAgentId: grant.targetAgentId,
+    room: grant.room, thread: typeof grant.thread === "string" ? grant.thread : null,
+    scope: grant.scope, createdAt: grant.createdAt || null, expiresAt: grant.expiresAt || null,
+    useLimit: Number.isSafeInteger(grant.useLimit) ? grant.useLimit : null,
+    useCount: Number.isSafeInteger(grant.useCount) ? grant.useCount : 0, state: grant.state,
+  })) }));
 }
 
 async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {

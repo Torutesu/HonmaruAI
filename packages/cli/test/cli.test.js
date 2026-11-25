@@ -1481,6 +1481,57 @@ test("file share decisions require confirmation and never retry or echo response
   assert.match(stderr.read(), /did not retry/);
 });
 
+test("Agent wake grants can be listed and explicitly revoked with the human session", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = {
+    HONMARU_API_URL: "https://api.example.com",
+    HONMARU_ORG_ID: "org_1",
+    HONMARU_SESSION_TOKEN: "human-session-token-123456",
+    HONMARU_API_TOKEN: token,
+  };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    return new Response(JSON.stringify(init.method === "GET"
+      ? { grants: [{ id: "wake_1", sourceAgentId: "planner", targetAgentId: "writer", room: "b:ops", thread: "root_1", scope: "room", expiresAt: null, useCount: 0, state: "active" }] }
+      : { revoked: true }), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "agent", "wake", "grants"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { grants: [{ id: "wake_1", sourceAgentId: "planner", targetAgentId: "writer", room: "b:ops", thread: "root_1", scope: "room", createdAt: null, expiresAt: null, useLimit: null, useCount: 0, state: "active" }] });
+  stdout.clear();
+  assert.equal(await run(["workspace", "agent", "wake", "revoke", "wake_1", "--confirm"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { revoked: true, grantId: "wake_1" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url.pathname, "/hx/agent-wake-grants");
+  assert.equal(calls[0].url.searchParams.get("orgId"), "org_1");
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[1].url.pathname, "/hx/agent-wake-grants");
+  assert.equal(calls[1].url.searchParams.get("orgId"), "org_1");
+  assert.equal(calls[1].url.searchParams.get("grantId"), "wake_1");
+  assert.equal(calls[1].init.method, "DELETE");
+  assert.equal(calls[1].init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  assert.equal(calls[1].init.headers.authorization, undefined);
+  assert.equal(calls[1].init.body, undefined);
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent wake grant revocation requires a human session and explicit confirmation", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_API_TOKEN: token };
+  const fetcher = async () => { calls += 1; return new Response(JSON.stringify({ revoked: true }), { status: 200 }); };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "agent", "wake", "revoke", "wake_1", "--confirm"]), 1);
+  assert.match(stderr.read(), /HONMARU_SESSION_TOKEN/);
+  assert.equal(calls, 0);
+  env.HONMARU_SESSION_TOKEN = "human-session-token-123456";
+  assert.equal(await run(["workspace", "agent", "wake", "revoke", "wake_1"]), 1);
+  assert.match(stderr.read(), /--confirm is required/);
+  assert.equal(calls, 0);
+});
+
 test("Skill share-link create and import use the human session without exposing import tokens", async () => {
   const calls = [];
   const stdout = output(), stderr = output();

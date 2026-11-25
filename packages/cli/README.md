@@ -13,6 +13,8 @@ export HONMARU_API_TOKEN="hm_…"
 
 The token stays in the environment and is not written to a config file or printed by the CLI. The server checks token expiry, workspace membership, IP and SSO policy, scopes, and whether Harness tools are enabled for that workspace. Simple workspaces continue to expose their existing tools.
 
+Agent wake grant listing and revocation use a signed-in human session from `HONMARU_SESSION_TOKEN`; the grant creator can revoke active, non-once grants. Revocation requires `--confirm` and is never retried after an ambiguous response.
+
 ## Use
 
 ```sh
@@ -22,6 +24,8 @@ npm exec --workspace @honmaru/cli -- honmaru workspace tools --json
 npm exec --workspace @honmaru/cli -- honmaru workspace call list_apps
 npm exec --workspace @honmaru/cli -- honmaru workspace skill list
 npm exec --workspace @honmaru/cli -- honmaru workspace skill get skill_…
+npm exec --workspace @honmaru/cli -- honmaru workspace agent wake grants
+npm exec --workspace @honmaru/cli -- honmaru workspace agent wake revoke grant_… --confirm
 npm exec --workspace @honmaru/cli -- honmaru workspace skill create --from ./skills/release --visibility private
 npm exec --workspace @honmaru/cli -- honmaru workspace skill update skill_… --from ./skills/release --expected-updated-at 2026-11-14T00:00:00.000Z
 npm exec --workspace @honmaru/cli -- honmaru workspace skill publish skill_… --version 1 --confirm
