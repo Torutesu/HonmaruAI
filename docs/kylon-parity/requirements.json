@@ -198,6 +198,12 @@
           "scope": "PR #1156 (main 872a1c1) adds a monotonic Agent-access generation fence for Native Notion/GitHub and Smithery calls. Revoke-then-regrant ABA changes cannot make an older in-flight result appear authorized; grant mutations use atomic D1 batches.",
           "verification": "Focused Smithery and Harness Agent tests passed (63 tests). PR CI #44894530805 and main CI #44896614365 passed; Worker deployment #44896614418 succeeded.",
           "remaining": "The full route/provider audit, authenticated multi-user isolation, and visual comparison remain."
+        },
+        "nativeConnectorGenerationIncrement": {
+          "reviewedAt": "2026-11-25",
+          "scope": "Connector synchronization now atomically advances the existing hx_agent_access generation for Agents with a matching personal source grant or shared Notion connection whenever connector availability changes. Thus same-owner disconnect/reconnect races change the authorization stamp independently of wall-clock timestamp resolution. Simple mode keeps its existing behavior; no schema added.",
+          "verification": "The focused in-flight disconnect/reconnect regression failed against the previous connection-sync path (the private result was returned), then passed after connector sync advanced the Agent generation atomically. Full Smithery integration suite passed 17/17; exact-head CI and deployment remain pending.",
+          "remaining": "Full route/provider audit, authenticated multi-user isolation, production acceptance, and visual comparison remain."
         }
       }
     },
