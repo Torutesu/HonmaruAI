@@ -15,6 +15,8 @@ The token stays in the environment and is not written to a config file or printe
 
 Agent wake grant listing and revocation use a signed-in human session from `HONMARU_SESSION_TOKEN`; the grant creator can revoke active, non-once grants. Revocation requires `--confirm` and is never retried after an ambiguous response.
 
+Agent connection listing and permission changes also use `HONMARU_SESSION_TOKEN`, never an Agent API token. Changes require `--confirm`; workspace native-source grants are additionally authorized by the Worker for workspace owners and admins. If a change request has an ambiguous network result, inspect the connection list before retrying.
+
 ## Use
 
 ```sh
@@ -26,6 +28,11 @@ npm exec --workspace @honmaru/cli -- honmaru workspace skill list
 npm exec --workspace @honmaru/cli -- honmaru workspace skill get skill_…
 npm exec --workspace @honmaru/cli -- honmaru workspace agent wake grants
 npm exec --workspace @honmaru/cli -- honmaru workspace agent wake revoke grant_… --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent connections list agent_… --workflow
+npm exec --workspace @honmaru/cli -- honmaru workspace agent connections app grant agent_… --server github --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent connections native grant agent_… --source notion --scope workspace --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent connections remote-tool grant agent_… --server-id mcp_… --tool search --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent connections custom-api revoke agent_… --app-id app_… --connection contacts --confirm
 npm exec --workspace @honmaru/cli -- honmaru workspace skill create --from ./skills/release --visibility private
 npm exec --workspace @honmaru/cli -- honmaru workspace skill update skill_… --from ./skills/release --expected-updated-at 2026-11-14T00:00:00.000Z
 npm exec --workspace @honmaru/cli -- honmaru workspace skill publish skill_… --version 1 --confirm

@@ -4872,3 +4872,8 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added `honmaru workspace agent wake grants` and explicitly confirmed `... revoke <grant-id> --confirm`. Both use a signed-in human session; the Worker continues to limit results and revocation to grants owned by that requester. The Web client now sends the DELETE grant ID as a query parameter, matching the Worker route contract and fixing the existing revoke control.
 - Local CLI suite passed **71/71**, Worker `agent-wake-approvals.test.js` passed **18/18**, and the focused Web request-shape test passed **1/1**. Syntax checks and `git diff --check` passed. Full Worker suite, exact-head CI, merge, and authenticated Kylon comparison remain pending. No schema, paid service, or Simple-mode change.
+
+### 2026-11-25 — KY-085 Agent connections CLI (candidate)
+
+- Added human-session CLI listing and grant/revoke operations for Connected Apps, native sources, Remote MCP servers/tools, and Custom App API connections. All mutations require `--confirm`; the existing Worker continues to enforce workspace-owner/admin authorization for workspace native-source grants. DELETE selectors are sent as query parameters, and Agent API tokens are never used as fallback credentials.
+- Focused CLI connection tests passed **3/3**. Full CLI suite, parity checker, exact-head CI, merge, production rollout, and authenticated Kylon comparison remain pending. No schema, paid service, or Simple-mode change.

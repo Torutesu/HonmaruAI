@@ -78,6 +78,11 @@ Usage:
   honmaru workspace thread pin|unpin <room-id> <root-id>
   honmaru workspace agent wake grants [--org-id ORG]
   honmaru workspace agent wake revoke <grant-id> --confirm [--org-id ORG]
+  honmaru workspace agent connections list <agent-id> [--workflow] [--org-id ORG]
+  honmaru workspace agent connections app grant|revoke <agent-id> --server NAME --confirm
+  honmaru workspace agent connections native grant|revoke <agent-id> --source notion|github|slack [--scope member|workspace] [--share-with-agent] --confirm
+  honmaru workspace agent connections remote|remote-tool grant|revoke <agent-id> --server-id ID [--tool NAME] --confirm
+  honmaru workspace agent connections custom-api grant|revoke <agent-id> --app-id ID --connection NAME --confirm
   honmaru workspace table list
   honmaru workspace table contract publish <table-id> --expected-updated-at ISO [--org-id ORG]
   honmaru workspace table contract list <table-id> [--org-id ORG]
@@ -137,10 +142,10 @@ Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, Agent wake grants, file administration, Skill shares, pinned contracts)
+HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, Agent wake grants/connections, file administration, Skill shares, pinned contracts)
   HONMARU_ORG_ID          Workspace id for commands that address a specific workspace
 
-Agent workspace operations use the API token. Agent wake grant administration, Room visual changes, Thread follow state, public file-share
+Agent workspace operations use the API token. Agent wake grant and connection administration, Room visual changes, Thread follow state, public file-share
 decisions, permanent file purges, and Skill share-link create/import require a human session
 token; they never use the agent token. Skill import bearer tokens are read from the named
 --token-env variable, never from a positional argument.
@@ -174,10 +179,10 @@ const ALIAS_VALUE_FLAGS = new Set([
   "from", "visibility", "owner", "expected-updated-at",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
-  "gateway-id", "request-id", "code", "input", "app-id", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
+  "gateway-id", "request-id", "code", "input", "app-id", "server", "server-id", "tool", "connection", "out", "output", "dir", "dest", "format", "timeout-seconds", "expected-started-at", "expected-updated-at", "expected-secret", "expected-secret-env", "event-ids", "generation", "revision",
   "path", "content-type", "expected-version", "thread", "reply-to", "file-ids", "emoji", "source", "expires-in", "expires-in-days", "file-id", "org-id", "reason", "token-env", "contract-version",
 ]);
-const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "unread", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only"]);
+const ALIAS_BOOLEAN_FLAGS = new Set(["direct-only", "include-deleted", "force", "joined", "archived", "unread", "confirm", "confirm-auto-paused", "confirm-no-replay", "draft", "allow-download", "grant-access", "acknowledge-external-processing", "acknowledge-dlp", "with-replies", "published-only", "workflow", "share-with-agent"]);
 
 async function readSkillSource(source) {
   const root = resolve(source);
@@ -1156,6 +1161,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await agentWakeGrantCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "agent" && operation === "connections") {
+      await agentConnectionsCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
     if (aliasMode && resource === "file" && operation === "purge") {
       await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
@@ -1767,6 +1776,85 @@ async function agentWakeGrantCommand({ action, positional, options, apiUrl, sess
     useLimit: Number.isSafeInteger(grant.useLimit) ? grant.useLimit : null,
     useCount: Number.isSafeInteger(grant.useCount) ? grant.useCount : 0, state: grant.state,
   })) }));
+}
+
+async function agentConnectionsCommand({ action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  const usage = "honmaru workspace agent connections list <agent-id> [--workflow] [--org-id ORG] or agent connections <app|native|remote|remote-tool|custom-api> <grant|revoke> <agent-id> ... --confirm";
+  const selectors = {
+    app: { flag: "server", field: "server" },
+    native: { flag: "source", field: "source" },
+    remote: { flag: "serverId", field: "remoteMcpServerId" },
+    "remote-tool": { flag: "serverId", field: "remoteMcpServerId", extraFlag: "tool", extraField: "remoteMcpToolName" },
+    "custom-api": { flag: "appId", field: "appId", extraFlag: "connection", extraField: "connectionName" },
+  };
+  const workspaceId = typeof options.orgId === "string" && options.orgId.trim() ? options.orgId.trim() : configuredOrgId;
+  if (typeof workspaceId !== "string" || !workspaceId.trim()) throw new Error("Set HONMARU_ORG_ID or pass --org-id to manage Agent connections.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot manage Agent connections.");
+  }
+  let method;
+  let body;
+  let targetAgentId;
+  let params = new URLSearchParams({ orgId: workspaceId });
+  if (action === "list") {
+    onlyFlags(options, ["orgId", "workflow"]);
+    positionalCount(positional, 1, usage);
+    if (!positional[0]?.trim()) throw new Error("Agent ID is required.");
+    if (options.workflow) params.set("workflow", "1");
+    method = "GET";
+  } else {
+    const [kind, operation] = [action, positional[0]];
+    const config = selectors[kind];
+    if (!config || !["grant", "revoke"].includes(operation)) throw new Error(usage);
+    const allowed = ["orgId", "confirm", config.flag, ...(config.extraFlag ? [config.extraFlag] : []), ...(kind === "native" ? ["scope", "shareWithAgent"] : [])];
+    onlyFlags(options, allowed);
+    positionalCount(positional.slice(1), 1, usage);
+    if (!options.confirm) throw new Error("--confirm is required to change Agent connections.");
+    const value = options[config.flag];
+    if (typeof value !== "string" || !value.trim()) throw new Error(`--${config.flag.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)} is required.`);
+    const selector = { [config.field]: value.trim() };
+    if (config.extraFlag) {
+      const extra = options[config.extraFlag];
+      if (typeof extra !== "string" || !extra.trim()) throw new Error(`--${config.extraFlag} is required.`);
+      selector[config.extraField] = extra.trim();
+    }
+    if (kind === "native") {
+      if (!["notion", "github", "slack"].includes(value)) throw new Error("--source must be notion, github, or slack.");
+      const scope = options.scope || "member";
+      if (!["member", "workspace"].includes(scope)) throw new Error("--scope must be member or workspace.");
+      selector.scope = scope;
+      if (options.shareWithAgent) selector.shareWithAgent = true;
+    }
+    targetAgentId = positional[1];
+    if (!targetAgentId?.trim()) throw new Error("Agent ID is required.");
+    if (kind === "app" || kind === "native" || kind === "remote" || kind === "remote-tool" || kind === "custom-api") {
+      method = operation === "grant" ? "POST" : "DELETE";
+      if (method === "POST") body = { orgId: workspaceId, ...selector };
+      else {
+        for (const [key, val] of Object.entries(selector)) {
+          if (key === "scope" && kind === "native") params.set(key, val);
+          else if (key === "shareWithAgent") params.set("shareWithAgent", "1");
+          else params.set(key, val);
+        }
+      }
+    }
+  }
+  const agentId = action === "list" ? positional[0] : targetAgentId;
+  const endpoint = new URL(`/hx/agents/${encodeURIComponent(agentId)}/apps`, new URL(mcpEndpoint(apiUrl)).origin);
+  for (const [key, value] of params) endpoint.searchParams.set(key, value);
+  let response;
+  try {
+    response = await fetcher(endpoint, { method, redirect: "error", headers: { "x-session-token": sessionToken, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
+  } catch {
+    throw new Error("Agent connection request could not be confirmed. Check the connection list before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) throw new Error(`Honmaru rejected the Agent connection request (HTTP ${response.status}). The CLI did not retry.`);
+  const result = await response.json().catch(() => null);
+  if (!result || !Array.isArray(result.connections) && action !== "list" && !Array.isArray(result.apiConnections)) throw new Error("Honmaru returned an invalid Agent connection response.");
+  if (action === "list" && (!["connections", "nativeConnections", "remoteMcpConnections", "apiConnections"].every(key => Array.isArray(result[key])) || (options.workflow && !Array.isArray(result.workflowRemoteMcpConnections)))) throw new Error("Honmaru returned an invalid Agent connection list.");
+  const safe = {};
+  for (const key of ["connections", "nativeConnections", "remoteMcpConnections", "apiConnections", "workflowRemoteMcpConnections"]) if (Array.isArray(result[key])) safe[key] = result[key];
+  writeOut(JSON.stringify(action === "list" ? safe : { changed: true, agentId }));
 }
 
 async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {

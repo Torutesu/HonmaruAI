@@ -1532,6 +1532,92 @@ test("Agent wake grant revocation requires a human session and explicit confirma
   assert.equal(calls, 0);
 });
 
+test("Agent connections lists visible grants and supports workflow-scoped Remote MCP details", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_SESSION_TOKEN: "human-session-token-123456", HONMARU_API_TOKEN: token };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init });
+    return new Response(JSON.stringify({
+      connections: [{ server: "github", name: "GitHub", granted: true }],
+      nativeConnections: [{ source: "notion", available: true, enabled: true }],
+      remoteMcpConnections: [{ serverId: "mcp_1", name: "Docs", available: true, enabled: true, readOnlyToolCount: 2 }],
+      apiConnections: [{ appId: "app_1", appName: "CRM", name: "contacts", enabled: true, granted: true, method: "GET" }],
+      workflowRemoteMcpConnections: [{ serverId: "mcp_1", name: "Docs", tools: [{ name: "search" }] }],
+    }), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "agent", "connections", "list", "agent/one", "--workflow"]), 0);
+  const result = JSON.parse(stdout.read());
+  assert.equal(result.connections[0].server, "github");
+  assert.equal(result.workflowRemoteMcpConnections[0].tools[0].name, "search");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.pathname, "/hx/agents/agent%2Fone/apps");
+  assert.equal(calls[0].url.searchParams.get("orgId"), "org_1");
+  assert.equal(calls[0].url.searchParams.get("workflow"), "1");
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  assert.equal(calls[0].init.headers.authorization, undefined);
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent connection grants and revocations map to the existing human-session API contract", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init, body: init.body ? JSON.parse(init.body) : null });
+    const result = calls.at(-1).url.searchParams.has("appId") || calls.at(-1).body?.appId
+      ? { apiConnections: [] }
+      : { connections: [], nativeConnections: [], remoteMcpConnections: [] };
+    return new Response(JSON.stringify(result), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+
+  assert.equal(await run(["workspace", "agent", "connections", "app", "grant", "agent_1", "--server", "github", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "agent", "connections", "native", "grant", "agent_1", "--source", "notion", "--scope", "workspace", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "agent", "connections", "native", "grant", "agent_1", "--source", "slack", "--share-with-agent", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "agent", "connections", "remote", "grant", "agent_1", "--server-id", "mcp_1", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "agent", "connections", "remote-tool", "grant", "agent_1", "--server-id", "mcp_1", "--tool", "search", "--confirm"]), 0);
+  assert.equal(await run(["workspace", "agent", "connections", "custom-api", "revoke", "agent_1", "--app-id", "app_1", "--connection", "contacts", "--confirm"]), 0);
+
+  assert.equal(calls.length, 6);
+  assert.deepEqual(calls[0].body, { orgId: "org_1", server: "github" });
+  assert.deepEqual(calls[1].body, { orgId: "org_1", source: "notion", scope: "workspace" });
+  assert.deepEqual(calls[2].body, { orgId: "org_1", source: "slack", scope: "member", shareWithAgent: true });
+  assert.deepEqual(calls[3].body, { orgId: "org_1", remoteMcpServerId: "mcp_1" });
+  assert.deepEqual(calls[4].body, { orgId: "org_1", remoteMcpServerId: "mcp_1", remoteMcpToolName: "search" });
+  for (const call of calls.slice(0, 5)) {
+    assert.equal(call.url.pathname, "/hx/agents/agent_1/apps");
+    assert.equal(call.init.method, "POST");
+    assert.equal(call.init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+    assert.equal(call.init.headers.authorization, undefined);
+  }
+  assert.equal(calls[5].url.searchParams.get("orgId"), "org_1");
+  assert.equal(calls[5].url.searchParams.get("appId"), "app_1");
+  assert.equal(calls[5].url.searchParams.get("connectionName"), "contacts");
+  assert.equal(calls[5].init.method, "DELETE");
+  assert.equal(calls[5].init.body, undefined);
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent connection mutations fail closed without confirmation or a human session", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_API_TOKEN: token };
+  const fetcher = async () => { calls += 1; return new Response("{}", { status: 200 }); };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "agent", "connections", "app", "grant", "agent_1", "--server", "github", "--confirm"]), 1);
+  assert.match(stderr.read(), /HONMARU_SESSION_TOKEN/);
+  env.HONMARU_SESSION_TOKEN = "human-session-token-123456";
+  assert.equal(await run(["workspace", "agent", "connections", "app", "grant", "agent_1", "--server", "github"]), 1);
+  assert.match(stderr.read(), /--confirm is required/);
+  assert.equal(await run(["workspace", "agent", "connections", "native", "grant", "agent_1", "--source", "smtp", "--confirm"]), 1);
+  assert.match(stderr.read(), /source must be notion, github, or slack/);
+  assert.equal(calls, 0);
+});
+
 test("Skill share-link create and import use the human session without exposing import tokens", async () => {
   const calls = [];
   const stdout = output(), stderr = output();
