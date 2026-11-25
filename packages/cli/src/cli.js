@@ -83,6 +83,11 @@ Usage:
   honmaru workspace agent connections native grant|revoke <agent-id> --source notion|github|slack [--scope member|workspace] [--share-with-agent] --confirm
   honmaru workspace agent connections remote|remote-tool grant|revoke <agent-id> --server-id ID [--tool NAME] --confirm
   honmaru workspace agent connections custom-api grant|revoke <agent-id> --app-id ID --connection NAME --confirm
+  honmaru workspace agent members list <agent-id> [--org-id ORG]
+  honmaru workspace agent members set <agent-id> <member-ref> --role admin|member|none --version N --confirm
+  honmaru workspace agent peers list <agent-id> [--org-id ORG]
+  honmaru workspace agent peers set <agent-id> <member-agent-id> --role member|none --version N --confirm
+  honmaru workspace agent ownership transfer <agent-id> <member-ref> --version N --confirm
   honmaru workspace table list
   honmaru workspace table contract publish <table-id> --expected-updated-at ISO [--org-id ORG]
   honmaru workspace table contract list <table-id> [--org-id ORG]
@@ -142,10 +147,10 @@ Environment:
   HONMARU_API_URL       HTTPS API origin for your Honmaru workspace
   HONMARU_APP_URL       Honmaru app origin for generated share links (default: https://app.honmaruai.com)
   HONMARU_API_TOKEN       Active agent token created under Studio → API
-HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, Agent wake grants/connections, file administration, Skill shares, pinned contracts)
+  HONMARU_SESSION_TOKEN   Signed-in human session token (Room visuals, Thread follow state, Agent wake grants/connections/collaboration, file administration, Skill shares, pinned contracts)
   HONMARU_ORG_ID          Workspace id for commands that address a specific workspace
 
-Agent workspace operations use the API token. Agent wake grant and connection administration, Room visual changes, Thread follow state, public file-share
+Agent workspace operations use the API token. Agent wake grant/connection/collaboration administration, Room visual changes, Thread follow state, public file-share
 decisions, permanent file purges, and Skill share-link create/import require a human session
 token; they never use the agent token. Skill import bearer tokens are read from the named
 --token-env variable, never from a positional argument.
@@ -175,7 +180,7 @@ The status command reports the macOS LaunchAgent state without reading or printi
 const ALIAS_VALUE_FLAGS = new Set([
   "query", "where", "sort", "limit", "offset", "values", "expected-updated-at",
   "text", "body", "comment", "room", "rooms", "instruction", "minutes", "scope", "origin", "type", "created-by", "mentioned-only", "main-agent", "icon-color", "relation",
-  "direction", "title", "name", "members", "grant-access-members", "to", "summary", "context", "priority",
+  "direction", "title", "name", "members", "grant-access-members", "role", "to", "summary", "context", "priority",
   "from", "visibility", "owner", "expected-updated-at",
   "since", "until", "directory", "order", "cursor", "version", "before", "offset", "trigger", "steps",
   "agent", "to-agent",
@@ -1165,6 +1170,10 @@ export async function runCli(argv, { env = process.env, fetcher = fetch, stdout 
       await agentConnectionsCommand({ action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
       return 0;
     }
+    if (aliasMode && resource === "agent" && ["members", "peers", "ownership"].includes(operation)) {
+      await agentCollaborationCommand({ resource: operation, action: commandArgs[0], positional: commandArgs.slice(1), options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, orgId: env.HONMARU_ORG_ID, fetcher, writeOut });
+      return 0;
+    }
     if (aliasMode && resource === "file" && operation === "purge") {
       await purgeWorkspaceFile({ positional: commandArgs, options, apiUrl, sessionToken: env.HONMARU_SESSION_TOKEN, fetcher, writeOut });
       return 0;
@@ -1855,6 +1864,76 @@ async function agentConnectionsCommand({ action, positional, options, apiUrl, se
   const safe = {};
   for (const key of ["connections", "nativeConnections", "remoteMcpConnections", "apiConnections", "workflowRemoteMcpConnections"]) if (Array.isArray(result[key])) safe[key] = result[key];
   writeOut(JSON.stringify(action === "list" ? safe : { changed: true, agentId }));
+}
+
+async function agentCollaborationCommand({ resource, action, positional, options, apiUrl, sessionToken, orgId: configuredOrgId, fetcher, writeOut }) {
+  const usage = resource === "ownership"
+    ? "honmaru workspace agent ownership transfer <agent-id> <member-ref> --version N --confirm"
+    : `honmaru workspace agent ${resource} list <agent-id> or ${resource} set <agent-id> <${resource === "members" ? "member-ref" : "member-agent-id"}> --role ... --version N --confirm`;
+  const listing = action === "list" && resource !== "ownership";
+  const transferring = resource === "ownership" && action === "transfer";
+  const changing = action === "set" && resource !== "ownership";
+  if (!listing && !transferring && !changing) throw new Error(usage);
+  const workspaceId = typeof options.orgId === "string" && options.orgId.trim() ? options.orgId.trim() : configuredOrgId;
+  if (typeof workspaceId !== "string" || !workspaceId.trim()) throw new Error("Set HONMARU_ORG_ID or pass --org-id to manage Agent collaboration.");
+  if (typeof sessionToken !== "string" || sessionToken.length < 16 || sessionToken.length > 4096 || /\s/.test(sessionToken)) {
+    throw new Error("Set HONMARU_SESSION_TOKEN to a signed-in human session token. Agent API tokens cannot manage Agent collaboration.");
+  }
+  onlyFlags(options, listing ? ["orgId"] : ["orgId", "confirm", "version", ...(changing ? ["role"] : [])]);
+  positionalCount(positional, listing ? 1 : 2, usage);
+  const agentId = positional[0];
+  const target = listing ? null : positional[1];
+  if (!agentId?.trim() || (!listing && !target?.trim())) throw new Error("Agent ID and target are required.");
+  let method = listing ? "GET" : "PUT";
+  const params = new URLSearchParams({ orgId: workspaceId });
+  let body;
+  let path;
+  if (listing) {
+    path = resource === "members" ? "members" : "agent-members";
+  } else {
+    if (!options.confirm) throw new Error("--confirm is required to change Agent collaboration.");
+    const version = integerOption(options, "version", { min: 0, required: true });
+    path = transferring ? "ownership" : resource === "members" ? "members" : "agent-members";
+    body = { orgId: workspaceId, expectedVersion: version };
+    if (transferring) body.ref = target;
+    else {
+      const validRoles = resource === "members" ? ["admin", "member", "none"] : ["member", "none"];
+      if (!validRoles.includes(options.role)) throw new Error(`--role must be ${validRoles.join(" or ")}.`);
+      body.role = options.role;
+      if (resource === "members") body.ref = target;
+      else body.memberAgentId = target;
+    }
+  }
+  const endpoint = new URL(`/hx/agents/${encodeURIComponent(agentId)}/${path}`, new URL(mcpEndpoint(apiUrl)).origin);
+  for (const [key, value] of params) endpoint.searchParams.set(key, value);
+  let response;
+  try {
+    response = await fetcher(endpoint, { method, redirect: "error", headers: { "x-session-token": sessionToken, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(15_000) });
+  } catch {
+    throw new Error("Agent collaboration request could not be confirmed. Read the current members before retrying; the CLI did not retry.");
+  }
+  if (!response.ok) throw new Error(`Honmaru rejected the Agent collaboration request (HTTP ${response.status}). The CLI did not retry.`);
+  const result = await response.json().catch(() => null);
+  if (!result || !Number.isSafeInteger(result.version) || result.version < 0 || (!listing && result.version !== integerOption(options, "version", { min: 0, required: true }) + 1)) throw new Error("Honmaru returned an invalid Agent collaboration response.");
+  if (!listing) {
+    writeOut(JSON.stringify({ agentId, version: result.version, transferred: transferring }));
+    return;
+  }
+  if (resource === "members") {
+    if (!Array.isArray(result.members) || !result.members.every(member => member && typeof member.ref === "string" && typeof member.name === "string" && ["admin", "member"].includes(member.role))
+      || !Array.isArray(result.candidates) || !result.candidates.every(member => member && typeof member.ref === "string" && typeof member.name === "string")
+      || typeof result.canManage !== "boolean" || typeof result.canAddMembers !== "boolean") throw new Error("Honmaru returned an invalid Agent member list.");
+    writeOut(JSON.stringify({ agentId, version: result.version, scope: result.scope, canManage: result.canManage, canAddMembers: result.canAddMembers,
+      members: result.members.map(({ ref, name, role, owner, mine }) => ({ ref, name, role, owner: !!owner, mine: !!mine })),
+      candidates: result.candidates.map(({ ref, name }) => ({ ref, name })) }));
+    return;
+  }
+  if (!Array.isArray(result.members) || !result.members.every(member => member && typeof member.agentId === "string" && typeof member.name === "string" && member.role === "member")
+    || !Array.isArray(result.candidates) || !result.candidates.every(candidate => candidate && typeof candidate.id === "string" && typeof candidate.name === "string")
+    || typeof result.canManage !== "boolean") throw new Error("Honmaru returned an invalid Agent peer list.");
+  writeOut(JSON.stringify({ agentId, version: result.version, scope: result.scope, managed: !!result.managed, canManage: result.canManage,
+    members: result.members.map(({ agentId: peerId, name, role }) => ({ agentId: peerId, name, role })),
+    candidates: result.candidates.map(({ id, name }) => ({ agentId: id, name })) }));
 }
 
 async function decideWorkspaceFileShare({ action, positional, options, apiUrl, sessionToken, fetcher, writeOut }) {

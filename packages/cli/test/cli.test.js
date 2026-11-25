@@ -1618,6 +1618,82 @@ test("Agent connection mutations fail closed without confirmation or a human ses
   assert.equal(calls, 0);
 });
 
+test("Agent human-member list returns only role metadata and member candidates", async () => {
+  const stdout = output(), stderr = output();
+  let seen;
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_SESSION_TOKEN: "human-session-token-123456", HONMARU_API_TOKEN: token };
+  const fetcher = async (url, init) => {
+    seen = { url: new URL(url), init };
+    return new Response(JSON.stringify({ version: 4, scope: "team", canManage: true, canAddMembers: true,
+      members: [{ ref: "m:one", name: "One", role: "admin", owner: 1, mine: true, internalId: "hidden" }], candidates: [{ ref: "m:two", name: "Two", email: "private@example.test" }] }), { status: 200 });
+  };
+  assert.equal(await runCli(["workspace", "agent", "members", "list", "agent_1"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(seen.url.pathname, "/hx/agents/agent_1/members");
+  assert.equal(seen.url.searchParams.get("orgId"), "org_1");
+  assert.equal(seen.init.method, "GET");
+  assert.equal(seen.init.headers["x-session-token"], env.HONMARU_SESSION_TOKEN);
+  assert.equal(seen.init.headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(stdout.read()), { agentId: "agent_1", version: 4, scope: "team", canManage: true, canAddMembers: true,
+    members: [{ ref: "m:one", name: "One", role: "admin", owner: true, mine: true }], candidates: [{ ref: "m:two", name: "Two" }] });
+  assert.doesNotMatch(stdout.read(), /private@example|hidden/);
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent member role updates use human session and expected-version CAS with confirmation", async () => {
+  const stdout = output(), stderr = output();
+  let seen;
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async (url, init) => { seen = { url: new URL(url), init, body: JSON.parse(init.body) }; return new Response(JSON.stringify({ version: 5 }), { status: 200 }); };
+  assert.equal(await runCli(["workspace", "agent", "members", "set", "agent_1", "member:two", "--role", "admin", "--version", "4", "--confirm"], { env, fetcher, stdout: stdout.stream, stderr: stderr.stream }), 0);
+  assert.equal(seen.url.pathname, "/hx/agents/agent_1/members");
+  assert.equal(seen.init.method, "PUT");
+  assert.deepEqual(seen.body, { orgId: "org_1", expectedVersion: 4, role: "admin", ref: "member:two" });
+  assert.deepEqual(JSON.parse(stdout.read()), { agentId: "agent_1", version: 5, transferred: false });
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent peer assignments and ownership transfer map to existing Worker routes", async () => {
+  const calls = [];
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_SESSION_TOKEN: "human-session-token-123456" };
+  const fetcher = async (url, init) => {
+    calls.push({ url: new URL(url), init, body: init.body ? JSON.parse(init.body) : null });
+    if (calls.length === 1) return new Response(JSON.stringify({ version: 8, scope: "team", managed: true, canManage: true,
+      members: [{ agentId: "peer_1", name: "Reviewer", role: "member" }], candidates: [{ id: "peer_2", name: "Writer" }] }), { status: 200 });
+    return new Response(JSON.stringify({ version: calls.length === 2 ? 9 : 10 }), { status: 200 });
+  };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "agent", "peers", "list", "agent_1"]), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { agentId: "agent_1", version: 8, scope: "team", managed: true, canManage: true,
+    members: [{ agentId: "peer_1", name: "Reviewer", role: "member" }], candidates: [{ agentId: "peer_2", name: "Writer" }] });
+  assert.equal(await run(["workspace", "agent", "peers", "set", "agent_1", "peer_2", "--role", "member", "--version", "8", "--confirm"]), 0);
+  assert.deepEqual(calls[1].body, { orgId: "org_1", expectedVersion: 8, role: "member", memberAgentId: "peer_2" });
+  assert.equal(await run(["workspace", "agent", "ownership", "transfer", "agent_1", "member:two", "--version", "9", "--confirm"]), 0);
+  assert.equal(calls[2].url.pathname, "/hx/agents/agent_1/ownership");
+  assert.deepEqual(calls[2].body, { orgId: "org_1", expectedVersion: 9, ref: "member:two" });
+  assert.deepEqual(JSON.parse(stdout.read().trim().split("\n").at(-1)), { agentId: "agent_1", version: 10, transferred: true });
+  assert.ok(calls.every(call => call.init.headers["x-session-token"] === env.HONMARU_SESSION_TOKEN && call.init.headers.authorization === undefined));
+  assert.equal(stderr.read(), "");
+});
+
+test("Agent collaboration mutations fail closed without confirmation, CAS, or a human session", async () => {
+  let calls = 0;
+  const stdout = output(), stderr = output();
+  const env = { HONMARU_API_URL: "https://api.example.com", HONMARU_ORG_ID: "org_1", HONMARU_API_TOKEN: token };
+  const fetcher = async () => { calls += 1; return new Response("{}", { status: 200 }); };
+  const run = argv => runCli(argv, { env, fetcher, stdout: stdout.stream, stderr: stderr.stream });
+  assert.equal(await run(["workspace", "agent", "members", "set", "agent_1", "member:two", "--role", "admin", "--version", "0", "--confirm"]), 1);
+  assert.match(stderr.read(), /HONMARU_SESSION_TOKEN/);
+  env.HONMARU_SESSION_TOKEN = "human-session-token-123456";
+  assert.equal(await run(["workspace", "agent", "members", "set", "agent_1", "member:two", "--role", "admin", "--version", "0"]), 1);
+  assert.match(stderr.read(), /--confirm is required/);
+  assert.equal(await run(["workspace", "agent", "peers", "set", "agent_1", "peer_2", "--role", "admin", "--version", "0", "--confirm"]), 1);
+  assert.match(stderr.read(), /--role must be member or none/);
+  assert.equal(await run(["workspace", "agent", "ownership", "transfer", "agent_1", "member:two", "--confirm"]), 1);
+  assert.match(stderr.read(), /--version is required/);
+  assert.equal(calls, 0);
+});
+
 test("Skill share-link create and import use the human session without exposing import tokens", async () => {
   const calls = [];
   const stdout = output(), stderr = output();

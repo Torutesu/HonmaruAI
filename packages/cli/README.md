@@ -17,6 +17,8 @@ Agent wake grant listing and revocation use a signed-in human session from `HONM
 
 Agent connection listing and permission changes also use `HONMARU_SESSION_TOKEN`, never an Agent API token. Changes require `--confirm`; workspace native-source grants are additionally authorized by the Worker for workspace owners and admins. If a change request has an ambiguous network result, inspect the connection list before retrying.
 
+Agent collaboration commands use the same signed-in human session. Human member roles, managed Agent peer assignments, and ownership transfer are protected by the Worker's live access checks and expected-version compare-and-set; changes require `--confirm`. Ownership can transfer only to another active human Agent admin.
+
 ## Use
 
 ```sh
@@ -33,6 +35,11 @@ npm exec --workspace @honmaru/cli -- honmaru workspace agent connections app gra
 npm exec --workspace @honmaru/cli -- honmaru workspace agent connections native grant agent_… --source notion --scope workspace --confirm
 npm exec --workspace @honmaru/cli -- honmaru workspace agent connections remote-tool grant agent_… --server-id mcp_… --tool search --confirm
 npm exec --workspace @honmaru/cli -- honmaru workspace agent connections custom-api revoke agent_… --app-id app_… --connection contacts --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent members list agent_…
+npm exec --workspace @honmaru/cli -- honmaru workspace agent members set agent_… member_… --role admin --version 4 --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent peers list agent_…
+npm exec --workspace @honmaru/cli -- honmaru workspace agent peers set agent_… reviewer_agent --role member --version 2 --confirm
+npm exec --workspace @honmaru/cli -- honmaru workspace agent ownership transfer agent_… member_… --version 5 --confirm
 npm exec --workspace @honmaru/cli -- honmaru workspace skill create --from ./skills/release --visibility private
 npm exec --workspace @honmaru/cli -- honmaru workspace skill update skill_… --from ./skills/release --expected-updated-at 2026-11-14T00:00:00.000Z
 npm exec --workspace @honmaru/cli -- honmaru workspace skill publish skill_… --version 1 --confirm
