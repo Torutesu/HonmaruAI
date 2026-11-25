@@ -1,18 +1,23 @@
 import {env} from 'cloudflare:test';
 import {beforeEach,expect,test} from 'vitest';
 import schema from '../schema.sql?raw';
-import {upsertUser,upsertMembership} from '../src/db.js';
+import worker from '../src/index.js';
+import {createSession,upsertUser,upsertMembership} from '../src/db.js';
 import {beginAssignment,commitHandoff} from '../src/harness/agentAssignments.js';
 import {requestAgentWakeApproval,decideAgentWakeApproval,activeAgentWakeGrant,validAgentWakeGrantForHandoff,expireAgentWakeApprovals} from '../src/harness/agentWakeApprovals.js';
 
 const org='wake-approvals';
 const origin={id:'human-request',channel:'b:room',author_login:'owner',parent_id:null,kind:'message',body:'Please investigate'};
-let assignment,move;
+let assignment,move,ownerToken,memberToken;
 
 beforeEach(async()=>{
   await env.DB.exec(schema.replace(/\n/g,' '));
   await upsertUser(env.DB,{githubId:'wake-human',login:'owner',name:'Owner',avatarUrl:null,locale:'en'});
   await upsertMembership(env.DB,org,'wake-human','admin');
+  await upsertUser(env.DB,{githubId:'wake-member',login:'member',name:'Member',avatarUrl:null,locale:'en'});
+  await upsertMembership(env.DB,org,'wake-member','member');
+  ownerToken=await createSession(env.DB,'wake-human','gho_wake_owner');
+  memberToken=await createSession(env.DB,'wake-member','gho_wake_member');
   await env.DB.prepare(`INSERT INTO businesses(org_id,slug,name,created_by,created_at) VALUES (?1,'room','Room','owner','now')`).bind(org).run();
   for(const id of ['source','target']) {
     await env.DB.prepare(`INSERT INTO custom_agents(org_id,id,handle,name,instructions,scope,owner_login,created_at,updated_at) VALUES (?1,?2,?2,?2,'Help','team','owner','now','now')`).bind(org,id).run();
@@ -27,6 +32,24 @@ beforeEach(async()=>{
 async function request() {
   return requestAgentWakeApproval(env,assignment,{requesterLogin:'owner',targetName:'Target Agent',...move});
 }
+
+test('wake grant list is requester-scoped and revoke reads the query ID used by the UI',async()=>{
+ const pending=await request();
+ const card={id:pending.approval.cardId,recipientUserID:'owner',senderUserID:'agent:source',decision:{action:'approve',actorUserID:'owner',optionId:'room'}};
+ await decideAgentWakeApproval(env.DB,org,card,'owner','wake-human');
+ const read=async token=>worker.fetch(new Request(`https://example.com/hx/agent-wake-grants?orgId=${org}`,{headers:{'x-session-token':token}}),env,{waitUntil:()=>{}});
+ const own=await (await read(ownerToken)).json();
+ expect(own.grants).toHaveLength(1);
+ expect(own.grants[0]).toMatchObject({sourceAgentId:'source',targetAgentId:'target',scope:'room',state:'active'});
+ expect((await (await read(memberToken)).json()).grants).toEqual([]);
+ const grantId=own.grants[0].id;
+ const revoked=await worker.fetch(new Request(`https://example.com/hx/agent-wake-grants?orgId=${org}&grantId=${grantId}`,{method:'DELETE',headers:{'x-session-token':ownerToken}}),env,{waitUntil:()=>{}});
+ expect(revoked.status).toBe(200);
+ expect(await revoked.json()).toEqual({revoked:true});
+ expect((await (await read(ownerToken)).json()).grants[0]).toMatchObject({id:grantId,state:'revoked'});
+ const forbidden=await worker.fetch(new Request(`https://example.com/hx/agent-wake-grants?orgId=${org}&grantId=${grantId}`,{method:'DELETE',headers:{'x-session-token':memberToken}}),env,{waitUntil:()=>{}});
+ expect(forbidden.status).toBe(404);
+});
 
 test('missing peer grant creates one private pending card and no handoff or dispatch before approval',async()=>{
   const first=await request(),replay=await request();

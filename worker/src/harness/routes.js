@@ -501,12 +501,13 @@ export async function handleHarness(request, env, url, context = {}) {
       return json({ grants: results });
     }
     if (request.method === 'DELETE') {
-      if (typeof input.grantId !== 'string') return json({message:'A grant ID is required.'},400);
+      const grantId = typeof input?.grantId === 'string' ? input.grantId : url.searchParams.get('grantId');
+      if (typeof grantId !== 'string' || !grantId) return json({message:'A grant ID is required.'},400);
       const result=await env.DB.prepare(`UPDATE hx_agent_wake_grants SET revoked_at=?4,updated_at=?4
         WHERE org_id=?1 AND id=?2 AND requester_id=?3 AND revoked_at IS NULL AND scope IN ('ten_minutes','thread','room')`)
-        .bind(orgId,input.grantId,me,new Date().toISOString()).run();
+        .bind(orgId,grantId,me,new Date().toISOString()).run();
       if(!result.meta?.changes)return json({message:'No active revocable grant was found.'},404);
-      await audit(env,request,{orgId,action:'agent.wake_grant_revoked',actor:person(who.user),entity:{type:'agent_wake_grant',id:input.grantId}});
+      await audit(env,request,{orgId,action:'agent.wake_grant_revoked',actor:person(who.user),entity:{type:'agent_wake_grant',id:grantId}});
       return json({revoked:true});
     }
     return json({message:'Method not allowed.'},405);
