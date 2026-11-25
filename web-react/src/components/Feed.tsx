@@ -569,7 +569,11 @@ const FeedPage: React.FC<PageProps> = ({ card, userId, businessName, onDecide, o
             </div>
           ) : (
             <div className="decide-row">
-              {card.agentWakeApproval ? <>
+              {card.agentFallbackApproval ? <>
+                <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')}><Icon name="x" size={22} /></button>
+                <button className="decide approve" onClick={() => decide('decline', 'computer')} aria-label={t('Try local computer')}>{t('Try local computer')}</button>
+                {(['once','two_hours','today','always'] as const).map((scope) => {const label=scope==='once'?'Allow this message':scope==='two_hours'?'Allow for two hours':scope==='today'?'Allow until today ends':'Always allow';return <button key={scope} className="decide approve" onClick={() => decide('approve',scope)} aria-label={t(label)}>{t(label)}</button>})}
+              </> : card.agentWakeApproval ? <>
                 <button className="decide decline" onClick={() => decide('decline')} aria-label={t('Decline')}><Icon name="x" size={22} /></button>
                 {(['ten_minutes','once','thread','room'] as const).map((scope) => {const label=scope==='ten_minutes'?'Allow for 10 min':scope==='once'?'Allow once':scope==='thread'?'Allow in this thread':'Always allow in this room';return <button key={scope} className="decide approve" onClick={() => decide('approve',scope)} aria-label={t(label)}>{t(label)}</button>})}
               </> : <>

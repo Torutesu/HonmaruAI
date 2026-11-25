@@ -75,6 +75,7 @@ export interface DecisionCard {
   agentAccessRequest?: { requestId: string; agentId: string }
   /// A one-run Agent handoff permission request. Scope values are validated by the Worker.
   agentWakeApproval?: { requestId: string; scopes: Array<'once' | 'ten_minutes' | 'thread' | 'room'> }
+  agentFallbackApproval?: { requestId: string; choices: Array<'once' | 'two_hours' | 'today' | 'always' | 'computer'> }
   // Your daily report, drafted in your voice: you read it, change it, and
   // post it to its channel yourself.
   dailyReport?: DailyReport

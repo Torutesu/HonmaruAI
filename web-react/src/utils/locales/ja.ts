@@ -1,6 +1,15 @@
 // The interface in ja: keys are the English strings (see i18n.ts).
 
 const table: Record<string, string> = {
+  'Fallback to Workspace AI': 'Workspace AIへの切り替え',
+  'Ask me': '確認してから許可',
+  'Always allow': '常に許可',
+  'Never allow': '許可しない',
+  'Ask me sends the owner a private approval when this Agent’s computer cannot answer. The owner can allow this message, two hours, today, or always. No Workspace AI request or usage is made before approval. If the computer reconnects first, the request returns there. Always allow and Never allow apply to future requests.': 'このAgentのコンピューターが応答できない場合、所有者に非公開の承認を求めます。このメッセージ、2時間、今日中、または常時の許可を選べます。承認前にWorkspace AIへのリクエストや利用は発生しません。先にコンピューターが再接続すると、そちらに依頼を戻します。常時許可と許可しない設定は今後の依頼に適用されます。',
+  'Allow this message': 'このメッセージを許可',
+  'Allow for two hours': '2時間許可',
+  'Allow until today ends': '今日中許可',
+  'Try local computer': 'ローカルコンピューターで実行',
   '{actor} added a record to {entity}': '{actor}が{entity}にレコードを追加しました',
   '{actor} updated a record in {entity}': '{actor}が{entity}のレコードを更新しました',
   '{actor} deleted a record from {entity}': '{actor}が{entity}からレコードを削除しました',

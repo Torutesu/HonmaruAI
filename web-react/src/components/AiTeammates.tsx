@@ -26,7 +26,7 @@ interface Teammate {
   monthlyLimit: number | null; spentThisMonth: number; tools: Tool[]; ready: boolean
   workspaceTools: boolean
   browserTools: boolean
-  fallbackToWorkspaceAI: boolean
+  fallbackToWorkspaceAI: boolean; fallbackPolicy: 'ask' | 'always' | 'never'
   /// Claude: an issue link or a bug report posted in a channel starts it.
   autoBuild?: boolean
   gatewayId: string; agentKey: string; webhookUrl: string; completionMcpUrl: string
@@ -37,7 +37,7 @@ interface Gateway { id: string; name: string; lastSeenAt?: number | null; acpAge
 interface Draft {
   apiKey: string; githubToken: string; account: string; model: string; instructions: string; repos: string
   everywhere: boolean; channels: Set<string>; limit: string; tools: Tool[]; autoBuild: boolean
-  gatewayId: string; agentKey: string; workspaceTools: boolean; browserTools: boolean; fallbackToWorkspaceAI: boolean; webhookUrl: string
+  gatewayId: string; agentKey: string; workspaceTools: boolean; browserTools: boolean; fallbackPolicy: 'ask' | 'always' | 'never'; webhookUrl: string
 }
 
 const draftOf = (tm: Teammate): Draft => ({
@@ -46,7 +46,7 @@ const draftOf = (tm: Teammate): Draft => ({
   limit: tm.monthlyLimit === null ? '' : String(tm.monthlyLimit), tools: tm.tools.map((x) => ({ ...x, secretValue: '' })),
   autoBuild: tm.autoBuild !== false,
   gatewayId: tm.gatewayId || '', agentKey: tm.agentKey || '',
-  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, fallbackToWorkspaceAI: tm.fallbackToWorkspaceAI !== false, webhookUrl: tm.webhookUrl || '',
+  workspaceTools: tm.workspaceTools === true, browserTools: tm.browserTools === true, fallbackPolicy: tm.fallbackPolicy || (tm.fallbackToWorkspaceAI ? 'always' : 'ask'), webhookUrl: tm.webhookUrl || '',
 })
 
 export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionToken: string }> = ({ httpBase, orgId, sessionToken }) => {
@@ -118,7 +118,7 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
     if (tm.models.length || tm.freeModel) body.model = draft.model
     if (tm.needs.account) body.account = draft.account
     if (tm.needs.gateway) { body.gatewayId = draft.gatewayId; body.agentKey = draft.agentKey }
-    if (tm.needs.gateway) { body.workspaceTools = draft.workspaceTools; body.browserTools = draft.browserTools; body.fallbackToWorkspaceAI = draft.fallbackToWorkspaceAI }
+    if (tm.needs.gateway) { body.workspaceTools = draft.workspaceTools; body.browserTools = draft.browserTools; body.fallbackPolicy = draft.fallbackPolicy }
     if (tm.needs.webhookBot) body.webhookUrl = draft.webhookUrl.trim()
     if (tm.needs.tools) body.tools = draft.tools.map((x) => ({ name: x.name, secretName: x.secretName, host: x.host, ...(x.secretValue?.trim() ? { secretValue: x.secretValue.trim() } : {}) }))
     if (draft.apiKey.trim()) body.apiKey = draft.apiKey.trim()
@@ -225,9 +225,14 @@ export const AiTeammates: React.FC<{ httpBase: string; orgId: string; sessionTok
               <small>{t('Page text, screenshots, and text entered by this agent are sent to the local ACP agent and its existing provider. Sign-ins persist in this agent’s isolated browser on the execution node.')}</small>
             </label>
             <label className="teammate-field">
-              <span><input type="checkbox" disabled={off || !harnessMode} checked={draft.fallbackToWorkspaceAI} onChange={(e) => set({ fallbackToWorkspaceAI: e.target.checked })} data-teammate-cloud-fallback /> {t('Use Workspace AI when this execution node is offline')}</span>
+              <span>{t('Fallback to Workspace AI')}</span>
+              <select className="rules-number wide" disabled={off || !harnessMode} value={draft.fallbackPolicy} onChange={(e) => set({ fallbackPolicy: e.target.value as Draft['fallbackPolicy'] })} data-teammate-fallback-policy>
+                <option value="ask">{t('Ask me')}</option>
+                <option value="always">{t('Always allow')}</option>
+                <option value="never">{t('Never allow')}</option>
+              </select>
               {!harnessMode && <small>{t('Cloud fallback is available in Harness mode only.')}</small>}
-              <small>{t('On by default unless an owner turns it off. When a local Agent is disconnected, it can answer through the Workspace AI account and its existing usage limits. This may use billable model capacity already configured for this Workspace; it adds no service or subscription. It does not run when access or budget checks deny the request.')}</small>
+              <small>{t('Ask me sends the owner a private approval when this Agent’s computer cannot answer. The owner can allow this message, two hours, today, or always. No Workspace AI request or usage is made before approval. If the computer reconnects first, the request returns there. Always allow and Never allow apply to future requests.')}</small>
             </label>
             <p className="form-note">{t('ACP agents execute with the Mac user’s permissions and may access local files, credentials, and network resources. In default mode, the gateway accepts one action requested by the agent; strict mode accepts read-only actions and rejects writes or terminal actions. Only connect agents and working directories you trust.')}</p>
           </>
