@@ -4887,6 +4887,7 @@ Validation: original upload/lifecycle/pagination suite plus HTTP metadata/conver
 
 - Added ACP tests proving session activity before prompt submission blocks fallback and a provider error after prompt submission does not resend the local prompt. Worker integration now checks that a post-prompt failure and an explicit owner opt-out make no Workspace AI request, settle the run as failed, and do not deliver a fallback answer.
 - The opt-out path exposed an optional `costCents` value being bound as `undefined`, which D1 rejects and could leave the run in `fallback_running`. Settlement now normalizes an absent cost to `null`. Focused Gateway ACP tests passed **11/11** and Worker teammates integration passed **41/41**. Full Worker suite, exact-head CI, deployment, connected-node acceptance, and Kylon comparison remain pending. No new provider/service or Simple-mode change.
+- Follow-up budget fence regression: when the Workspace AI rolling budget is exhausted after the local node reports `signed_out`, the cloud fallback sends **zero** model requests, leaves the fallback state on the node, marks the teammate run failed, and emits no cloud answer. The focused test passed **1/1**; the complete `teammates.test.js` file passed **42/42**. The three scheduled workspace-budget cases in `harness-workflows.test.js` passed **3/3**. Full Worker suite, exact-head CI, production acceptance, and Kylon comparison remain pending.
 
 ### 2026-11-25 — KY-015 Native Notion connector-generation fence (candidate)
 
